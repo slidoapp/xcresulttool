@@ -32,12 +32,9 @@ export class Parser {
       '--output-path',
       outputPath,
       '--id',
-      reference
+      reference,
+      '--legacy'
     ]
-
-    if (xcodeVersion >== 16) {
-      args.push('--legacy')
-    }
 
     const options = {
       silent: !core.isDebug()
@@ -80,9 +77,7 @@ export class Parser {
       args.push(reference)
     }
 
-    if (xcodeVersion >== 16) {
-      args.push('--legacy')
-    }
+    args.push('--legacy')
 
     let output = ''
     const options = {
