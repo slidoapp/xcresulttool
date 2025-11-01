@@ -25,6 +25,7 @@ export class Parser {
     const args = [
       'xcresulttool',
       'export',
+      '--legacy',
       '--type',
       'file',
       '--path',
@@ -32,8 +33,7 @@ export class Parser {
       '--output-path',
       outputPath,
       '--id',
-      reference,
-      '--legacy'
+      reference
     ]
 
     const options = {
@@ -67,6 +67,7 @@ export class Parser {
     const args = [
       'xcresulttool',
       'get',
+      '--legacy',
       '--path',
       this.bundlePath,
       '--format',
@@ -76,8 +77,6 @@ export class Parser {
       args.push('--id')
       args.push(reference)
     }
-
-    args.push('--legacy')
 
     let output = ''
     const options = {
