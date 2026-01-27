@@ -1,12 +1,12 @@
 // Modern test result format (Xcode 16+)
 
-export interface ModernTestResult {
-  devices: ModernDevice[]
-  testNodes: ModernTestNode[]
-  testPlanConfigurations: ModernConfiguration[]
+export interface TestResults_Tests {
+  devices: Device[]
+  testNodes: TestNode[]
+  testPlanConfigurations: Configuration[]
 }
 
-export interface ModernDevice {
+export interface Device {
   deviceId: string
   deviceName: string
   architecture: string
@@ -16,12 +16,12 @@ export interface ModernDevice {
   osBuildNumber?: string
 }
 
-export interface ModernConfiguration {
+export interface Configuration {
   configurationId: string
   configurationName: string
 }
 
-export type ModernTestNodeType =
+export type TestNodeType =
   | 'Test Plan'
   | 'Unit test bundle'
   | 'UI test bundle'
@@ -39,22 +39,22 @@ export type ModernTestNodeType =
   | 'Test Value'
   | 'Runtime Warning'
 
-export type ModernTestResultStatus =
+export type TestResult =
   | 'Passed'
   | 'Failed'
   | 'Skipped'
   | 'Expected Failure'
   | 'unknown'
 
-export interface ModernTestNode {
+export interface TestNode {
   name: string
-  nodeType: ModernTestNodeType
+  nodeType: TestNodeType
   nodeIdentifier?: string
   nodeIdentifierURL?: string
   details?: string
   duration?: string
   durationInSeconds?: number
-  result?: ModernTestResultStatus
+  result?: TestResult
   tags?: string[]
-  children?: ModernTestNode[]
+  children?: TestNode[]
 }

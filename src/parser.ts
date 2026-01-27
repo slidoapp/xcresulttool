@@ -2,7 +2,7 @@
 
 import * as core from '@actions/core'
 import * as exec from '@actions/exec'
-import {ModernTestResult} from '../dev/@types/ModernTestResult.d'
+import {TestResults_Tests} from '../dev/@types/TestResults_Tests'
 
 export class Parser {
   private bundlePath: string
@@ -16,7 +16,7 @@ export class Parser {
     return parseObject(root) as any
   }
 
-  async parseModernTests(): Promise<ModernTestResult> {
+  async parseModernTests(): Promise<TestResults_Tests> {
     const args = [
       'xcresulttool',
       'get',

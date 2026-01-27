@@ -7,17 +7,16 @@ import {beforeAll, expect, test} from '@jest/globals'
 import {promises} from 'fs'
 const {readFile, writeFile} = promises
 import {Formatter, FormatterOptions} from '../src/formatter'
-import { getXcodeVersion } from '../src/xcode'
+import {getXcodeVersion} from '../src/xcode'
 
 let expectedResultsDir = '__tests__/data'
 
 beforeAll(async () => {
-  const xcodeVersion = await getXcodeVersion();
+  const xcodeVersion = await getXcodeVersion()
   if (xcodeVersion < 16) {
-    expectedResultsDir = path.join(expectedResultsDir, 'legacy');
+    expectedResultsDir = path.join(expectedResultsDir, 'legacy')
   }
-});
-
+})
 
 test('Example.xcresult', async () => {
   const bundlePath = '__tests__/data/Example.xcresult'

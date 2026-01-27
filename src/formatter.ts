@@ -39,10 +39,10 @@ import {ActionTestableSummary} from '../dev/@types/ActionTestableSummary.d'
 import {ActionsInvocationMetadata} from '../dev/@types/ActionsInvocationMetadata.d'
 import {ActionsInvocationRecord} from '../dev/@types/ActionsInvocationRecord.d'
 import {
-  ModernTestResult,
-  ModernTestNode,
-  ModernTestResultStatus
-} from '../dev/@types/ModernTestResult.d'
+  TestResults_Tests,
+  TestNode,
+  TestResult
+} from '../dev/@types/TestResults_Tests'
 
 import {Activity} from './activity'
 import {ActivityLogSection} from '../dev/@types/ActivityLogSection.d'
@@ -930,7 +930,7 @@ export class Formatter {
   }
 
   async formatModern(
-    modernResult: ModernTestResult,
+    modernResult: TestResults_Tests,
     options: FormatterOptions
   ): Promise<TestReport> {
     const testReport = new TestReport()
@@ -954,7 +954,7 @@ export class Formatter {
     interface TestCaseInfo {
       name: string
       identifier: string
-      result: ModernTestResultStatus
+      result: TestResult
       duration: number
       suiteName: string
       bundleName: string
@@ -965,7 +965,7 @@ export class Formatter {
 
     // Recursive function to collect test cases from nodes
     const collectTestCases = (
-      nodes: ModernTestNode[],
+      nodes: TestNode[],
       bundleName: string,
       suiteName: string
     ): void => {
@@ -1353,7 +1353,7 @@ export class Formatter {
     return testReport
   }
 
-  private getModernTestStatusIcon(result: ModernTestResultStatus): string {
+  private getModernTestStatusIcon(result: TestResult): string {
     switch (result) {
       case 'Passed':
         return passedIcon
