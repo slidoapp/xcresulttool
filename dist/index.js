@@ -272,6 +272,7 @@ exports.FormatterOptions = exports.Formatter = void 0;
 const Image = __importStar(__nccwpck_require__(21281));
 const github = __importStar(__nccwpck_require__(95438));
 const path = __importStar(__nccwpck_require__(71017));
+const xcode_1 = __nccwpck_require__(33339);
 const report_1 = __nccwpck_require__(28269);
 const markdown_1 = __nccwpck_require__(15821);
 const coverage_1 = __nccwpck_require__(45730);
@@ -295,23 +296,23 @@ class Formatter {
         this.parser = new parser_1.Parser(this.bundlePath);
     }
     async format(options = new FormatterOptions()) {
-        // Try modern format first (Xcode 16+)
-        const modernResult = await this.parser.parseModernTests();
-        if (modernResult) {
+        const xcodeVersion = await (0, xcode_1.getXcodeVersion)();
+        if (xcodeVersion >= 16) {
+            const modernResult = await this.parser.parseModernTests();
             return this.formatModern(modernResult, options);
         }
         // Fall back to legacy format
-        const actionsInvocationRecord = await this.parser.parse();
+        const actionsInvocationRecord = await this.parser.parseLegacy();
         const testReport = new report_1.TestReport();
         if (actionsInvocationRecord.metadataRef) {
-            const metadata = await this.parser.parse(actionsInvocationRecord.metadataRef.id);
+            const metadata = await this.parser.parseLegacy(actionsInvocationRecord.metadataRef.id);
             testReport.entityName = metadata.schemeIdentifier?.entityName;
             testReport.creatingWorkspaceFilePath = metadata.creatingWorkspaceFilePath;
         }
         if (actionsInvocationRecord.actions) {
             for (const action of actionsInvocationRecord.actions) {
                 if (action.buildResult.logRef) {
-                    const log = await this.parser.parse(action.buildResult.logRef.id);
+                    const log = await this.parser.parseLegacy(action.buildResult.logRef.id);
                     const buildLog = new report_1.BuildLog(log, testReport.creatingWorkspaceFilePath);
                     if (buildLog.content.length) {
                         testReport.buildLog = buildLog;
@@ -325,7 +326,7 @@ class Formatter {
                     if (action.actionResult.testsRef) {
                         const testReportChapter = new report_1.TestReportChapter(action.schemeCommandName, action.runDestination, action.title);
                         testReport.chapters.push(testReportChapter);
-                        const actionTestPlanRunSummaries = await this.parser.parse(action.actionResult.testsRef.id);
+                        const actionTestPlanRunSummaries = await this.parser.parseLegacy(action.actionResult.testsRef.id);
                         for (const summary of actionTestPlanRunSummaries.summaries) {
                             for (const testableSummary of summary.testableSummaries) {
                                 const testSummaries = [];
@@ -537,7 +538,7 @@ class Formatter {
                         for (const [, detail] of details.entries()) {
                             const testResult = detail;
                             if (testResult.summaryRef) {
-                                const summary = await this.parser.parse(testResult.summaryRef.id);
+                                const summary = await this.parser.parseLegacy(testResult.summaryRef.id);
                                 const testFailureGroup = new report_1.TestFailureGroup(testResultSummaryName || '', summary.identifier || '', summary.name || '');
                                 testFailures.failureGroups.push(testFailureGroup);
                                 if (summary.failureSummaries) {
@@ -757,7 +758,7 @@ class Formatter {
                             const status = Image.testStatus(testResult.testStatus);
                             const resultLines = [];
                             if (testResult.summaryRef) {
-                                const summary = await this.parser.parse(testResult.summaryRef.id);
+                                const summary = await this.parser.parseLegacy(testResult.summaryRef.id);
                                 if (summary.configuration) {
                                     if (testResult.name) {
                                         const anchorTag = (0, markdown_1.anchorNameTag)(`${testResultSummaryName}_${testResult.identifier}`);
@@ -1205,9 +1206,12 @@ class Formatter {
                             break;
                     }
                 }
-                const passedRate = ((suiteStats.passed / suiteStats.total) * 100).toFixed(0);
-                const failedRate = ((suiteStats.failed / suiteStats.total) * 100).toFixed(0);
-                const skippedRate = ((suiteStats.skipped / suiteStats.total) * 100).toFixed(0);
+                const passedRate = ((suiteStats.passed / suiteStats.total) *
+                    100).toFixed(0);
+                const failedRate = ((suiteStats.failed / suiteStats.total) *
+                    100).toFixed(0);
+                const skippedRate = ((suiteStats.skipped / suiteStats.total) *
+                    100).toFixed(0);
                 const expectedFailureRate = ((suiteStats.expectedFailure / suiteStats.total) *
                     100).toFixed(0);
                 const suiteDuration = suiteStats.duration.toFixed(2);
@@ -1651,23 +1655,16 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Parser = void 0;
 const core = __importStar(__nccwpck_require__(42186));
 const exec = __importStar(__nccwpck_require__(71514));
-const fs_1 = __nccwpck_require__(57147);
-const xcode_1 = __nccwpck_require__(33339);
-const { readFile } = fs_1.promises;
 class Parser {
     bundlePath;
     constructor(bundlePath) {
         this.bundlePath = bundlePath;
     }
-    async parse(reference) {
+    async parseLegacy(reference) {
         const root = JSON.parse(await this.toJSON(reference));
         return parseObject(root);
     }
     async parseModernTests() {
-        const xcodeVersion = await (0, xcode_1.getXcodeVersion)();
-        if (xcodeVersion < 16) {
-            return null;
-        }
         const args = [
             'xcresulttool',
             'get',
@@ -1688,29 +1685,6 @@ class Parser {
         await exec.exec('xcrun', args, options);
         return JSON.parse(output);
     }
-    async exportObject(reference, outputPath) {
-        const xcodeVersion = await (0, xcode_1.getXcodeVersion)();
-        const args = [
-            'xcresulttool',
-            'export',
-            '--type',
-            'file',
-            '--path',
-            this.bundlePath,
-            '--output-path',
-            outputPath,
-            '--id',
-            reference
-        ];
-        if (xcodeVersion >= 16) {
-            args.push('--legacy');
-        }
-        const options = {
-            silent: !core.isDebug()
-        };
-        await exec.exec('xcrun', args, options);
-        return Buffer.from(await readFile(outputPath));
-    }
     async exportCodeCoverage() {
         const args = ['xccov', 'view', '--report', '--json', this.bundlePath];
         let output = '';
@@ -1726,7 +1700,6 @@ class Parser {
         return output;
     }
     async toJSON(reference) {
-        const xcodeVersion = await (0, xcode_1.getXcodeVersion)();
         const args = [
             'xcresulttool',
             'get',
@@ -1738,9 +1711,6 @@ class Parser {
         if (reference) {
             args.push('--id');
             args.push(reference);
-        }
-        if (xcodeVersion >= 16) {
-            args.push('--legacy');
         }
         let output = '';
         const options = {

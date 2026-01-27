@@ -3,6 +3,7 @@
 import * as Image from './image'
 import * as github from '@actions/github'
 import * as path from 'path'
+import {getXcodeVersion} from './xcode'
 
 import {
   Annotation,
@@ -74,20 +75,20 @@ export class Formatter {
   async format(
     options: FormatterOptions = new FormatterOptions()
   ): Promise<TestReport> {
-    // Try modern format first (Xcode 16+)
-    const modernResult = await this.parser.parseModernTests()
-    if (modernResult) {
+    const xcodeVersion = await getXcodeVersion()
+    if (xcodeVersion >= 16) {
+      const modernResult = await this.parser.parseModernTests()
       return this.formatModern(modernResult, options)
     }
 
     // Fall back to legacy format
     const actionsInvocationRecord: ActionsInvocationRecord =
-      await this.parser.parse()
+      await this.parser.parseLegacy()
 
     const testReport = new TestReport()
 
     if (actionsInvocationRecord.metadataRef) {
-      const metadata: ActionsInvocationMetadata = await this.parser.parse(
+      const metadata: ActionsInvocationMetadata = await this.parser.parseLegacy(
         actionsInvocationRecord.metadataRef.id
       )
 
@@ -98,7 +99,7 @@ export class Formatter {
     if (actionsInvocationRecord.actions) {
       for (const action of actionsInvocationRecord.actions) {
         if (action.buildResult.logRef) {
-          const log: ActivityLogSection = await this.parser.parse(
+          const log: ActivityLogSection = await this.parser.parseLegacy(
             action.buildResult.logRef.id
           )
           const buildLog = new BuildLog(
@@ -123,7 +124,7 @@ export class Formatter {
             testReport.chapters.push(testReportChapter)
 
             const actionTestPlanRunSummaries: ActionTestPlanRunSummaries =
-              await this.parser.parse(action.actionResult.testsRef.id)
+              await this.parser.parseLegacy(action.actionResult.testsRef.id)
 
             for (const summary of actionTestPlanRunSummaries.summaries) {
               for (const testableSummary of summary.testableSummaries) {
@@ -388,9 +389,8 @@ export class Formatter {
               const testResult = detail as ActionTestMetadata
 
               if (testResult.summaryRef) {
-                const summary: ActionTestSummary = await this.parser.parse(
-                  testResult.summaryRef.id
-                )
+                const summary: ActionTestSummary =
+                  await this.parser.parseLegacy(testResult.summaryRef.id)
 
                 const testFailureGroup = new TestFailureGroup(
                   testResultSummaryName || '',
@@ -689,9 +689,8 @@ export class Formatter {
               const resultLines: string[] = []
 
               if (testResult.summaryRef) {
-                const summary: ActionTestSummary = await this.parser.parse(
-                  testResult.summaryRef.id
-                )
+                const summary: ActionTestSummary =
+                  await this.parser.parseLegacy(testResult.summaryRef.id)
 
                 if (summary.configuration) {
                   if (testResult.name) {

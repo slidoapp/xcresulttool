@@ -2,11 +2,7 @@
 
 import * as core from '@actions/core'
 import * as exec from '@actions/exec'
-import {promises} from 'fs'
-import {getXcodeVersion} from './xcode'
 import {ModernTestResult} from '../dev/@types/ModernTestResult.d'
-
-const {readFile} = promises
 
 export class Parser {
   private bundlePath: string
@@ -15,17 +11,12 @@ export class Parser {
     this.bundlePath = bundlePath
   }
 
-  async parse(reference?: string): Promise<any> {
+  async parseLegacy(reference?: string): Promise<any> {
     const root = JSON.parse(await this.toJSON(reference))
     return parseObject(root) as any
   }
 
-  async parseModernTests(): Promise<ModernTestResult | null> {
-    const xcodeVersion = await getXcodeVersion()
-    if (xcodeVersion < 16) {
-      return null
-    }
-
+  async parseModernTests(): Promise<ModernTestResult> {
     const args = [
       'xcresulttool',
       'get',
@@ -49,34 +40,6 @@ export class Parser {
     return JSON.parse(output)
   }
 
-  async exportObject(reference: string, outputPath: string): Promise<Buffer> {
-    const xcodeVersion = await getXcodeVersion()
-
-    const args = [
-      'xcresulttool',
-      'export',
-      '--type',
-      'file',
-      '--path',
-      this.bundlePath,
-      '--output-path',
-      outputPath,
-      '--id',
-      reference
-    ]
-
-    if (xcodeVersion >= 16) {
-      args.push('--legacy')
-    }
-
-    const options = {
-      silent: !core.isDebug()
-    }
-
-    await exec.exec('xcrun', args, options)
-    return Buffer.from(await readFile(outputPath))
-  }
-
   async exportCodeCoverage(): Promise<string> {
     const args = ['xccov', 'view', '--report', '--json', this.bundlePath]
 
@@ -95,8 +58,6 @@ export class Parser {
   }
 
   private async toJSON(reference?: string): Promise<string> {
-    const xcodeVersion = await getXcodeVersion()
-
     const args = [
       'xcresulttool',
       'get',
@@ -108,10 +69,6 @@ export class Parser {
     if (reference) {
       args.push('--id')
       args.push(reference)
-    }
-
-    if (xcodeVersion >= 16) {
-      args.push('--legacy')
     }
 
     let output = ''
