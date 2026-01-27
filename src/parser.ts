@@ -1,8 +1,8 @@
 /*eslint-disable @typescript-eslint/no-explicit-any */
 
-import * as core from '@actions/core'
-import * as exec from '@actions/exec'
 import {TestResults_Tests} from '../dev/@types/TestResults_Tests'
+import {XCCov} from './xctools/xccov'
+import {XCResultTool} from './xctools/xcresulttool'
 
 export class Parser {
   private bundlePath: string
@@ -12,77 +12,20 @@ export class Parser {
   }
 
   async parseLegacy(reference?: string): Promise<any> {
-    const root = JSON.parse(await this.toJSON(reference))
+    const tool = new XCResultTool(this.bundlePath)
+    const root = JSON.parse(await tool.getLegacyJSON(reference))
     return parseObject(root) as any
   }
 
   async parseModernTests(): Promise<TestResults_Tests> {
-    const args = [
-      'xcresulttool',
-      'get',
-      'test-results',
-      'tests',
-      '--path',
-      this.bundlePath
-    ]
-
-    let output = ''
-    const options = {
-      silent: !core.isDebug(),
-      listeners: {
-        stdout: (data: Buffer) => {
-          output += data.toString()
-        }
-      }
-    }
-
-    await exec.exec('xcrun', args, options)
+    const tool = new XCResultTool(this.bundlePath)
+    const output = await tool.getTestResults_Tests()
     return JSON.parse(output)
   }
 
   async exportCodeCoverage(): Promise<string> {
-    const args = ['xccov', 'view', '--report', '--json', this.bundlePath]
-
-    let output = ''
-    const options = {
-      silent: !core.isDebug(),
-      listeners: {
-        stdout: (data: Buffer) => {
-          output += data.toString()
-        }
-      }
-    }
-
-    await exec.exec('xcrun', args, options)
-    return output
-  }
-
-  private async toJSON(reference?: string): Promise<string> {
-    const args = [
-      'xcresulttool',
-      'get',
-      '--path',
-      this.bundlePath,
-      '--format',
-      'json'
-    ]
-    if (reference) {
-      args.push('--id')
-      args.push(reference)
-    }
-
-    let output = ''
-    const options = {
-      silent: !core.isDebug(),
-      listeners: {
-        stdout: (data: Buffer) => {
-          output += data.toString()
-        }
-      }
-    }
-
-    await exec.exec('xcrun', args, options)
-    return output
+    const tool = new XCCov(this.bundlePath)
+    return await tool.viewJSONReport()
   }
 }
 
