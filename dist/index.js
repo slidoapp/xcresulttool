@@ -1640,7 +1640,7 @@ class Parser {
     async parseLegacy(reference) {
         const tool = new xcresulttool_1.XCResultTool(this.bundlePath);
         const root = JSON.parse(await tool.getLegacyJSON(reference));
-        return parseObject(root);
+        return Parser.parseObject(root);
     }
     async parseModernTests() {
         const tool = new xcresulttool_1.XCResultTool(this.bundlePath);
@@ -1651,59 +1651,59 @@ class Parser {
         const tool = new xccov_1.XCCov(this.bundlePath);
         return await tool.viewJSONReport();
     }
-}
-exports.Parser = Parser;
-function parseObject(element) {
-    const obj = {};
-    for (const [key, value] of Object.entries(element)) {
-        if (value['_value']) {
-            obj[key] = parsePrimitive(value);
-        }
-        else if (value['_values']) {
-            obj[key] = parseArray(value);
-        }
-        else if (key === '_type') {
-            continue;
-        }
-        else {
-            obj[key] = parseObject(value);
-        }
-    }
-    return obj;
-}
-function parseArray(arrayElement) {
-    return arrayElement['_values'].map((arrayValue) => {
+    static parseObject(element) {
         const obj = {};
-        for (const [key, value] of Object.entries(arrayValue)) {
+        for (const [key, value] of Object.entries(element)) {
             if (value['_value']) {
-                obj[key] = parsePrimitive(value);
+                obj[key] = Parser.parsePrimitive(value);
             }
             else if (value['_values']) {
-                obj[key] = parseArray(value);
+                obj[key] = Parser.parseArray(value);
             }
             else if (key === '_type') {
                 continue;
             }
-            else if (key === '_value') {
-                continue;
-            }
             else {
-                obj[key] = parseObject(value);
+                obj[key] = Parser.parseObject(value);
             }
         }
         return obj;
-    });
-}
-function parsePrimitive(element) {
-    switch (element['_type']['_name']) {
-        case 'Int':
-            return parseInt(element['_value']);
-        case 'Double':
-            return parseFloat(element['_value']);
-        default:
-            return element['_value'];
+    }
+    static parseArray(arrayElement) {
+        return arrayElement['_values'].map((arrayValue) => {
+            const obj = {};
+            for (const [key, value] of Object.entries(arrayValue)) {
+                if (value['_value']) {
+                    obj[key] = Parser.parsePrimitive(value);
+                }
+                else if (value['_values']) {
+                    obj[key] = Parser.parseArray(value);
+                }
+                else if (key === '_type') {
+                    continue;
+                }
+                else if (key === '_value') {
+                    continue;
+                }
+                else {
+                    obj[key] = Parser.parseObject(value);
+                }
+            }
+            return obj;
+        });
+    }
+    static parsePrimitive(element) {
+        switch (element['_type']['_name']) {
+            case 'Int':
+                return parseInt(element['_value']);
+            case 'Double':
+                return parseFloat(element['_value']);
+            default:
+                return element['_value'];
+        }
     }
 }
+exports.Parser = Parser;
 
 
 /***/ }),
