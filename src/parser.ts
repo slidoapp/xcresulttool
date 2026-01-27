@@ -2,10 +2,11 @@
 
 import * as core from '@actions/core'
 import * as exec from '@actions/exec'
-import { promises } from 'fs'
-import { getXcodeVersion } from './xcode'
+import {promises} from 'fs'
+import {getXcodeVersion} from './xcode'
+import {ModernTestResult} from '../dev/@types/ModernTestResult.d'
 
-const { readFile } = promises
+const {readFile} = promises
 
 export class Parser {
   private bundlePath: string
@@ -17,6 +18,35 @@ export class Parser {
   async parse(reference?: string): Promise<any> {
     const root = JSON.parse(await this.toJSON(reference))
     return parseObject(root) as any
+  }
+
+  async parseModernTests(): Promise<ModernTestResult | null> {
+    const xcodeVersion = await getXcodeVersion()
+    if (xcodeVersion < 16) {
+      return null
+    }
+
+    const args = [
+      'xcresulttool',
+      'get',
+      'test-results',
+      'tests',
+      '--path',
+      this.bundlePath
+    ]
+
+    let output = ''
+    const options = {
+      silent: !core.isDebug(),
+      listeners: {
+        stdout: (data: Buffer) => {
+          output += data.toString()
+        }
+      }
+    }
+
+    await exec.exec('xcrun', args, options)
+    return JSON.parse(output)
   }
 
   async exportObject(reference: string, outputPath: string): Promise<Buffer> {
