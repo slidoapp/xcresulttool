@@ -3,6 +3,7 @@
 import * as Image from './image'
 import * as github from '@actions/github'
 import * as path from 'path'
+import {getXcodeVersion} from './xcode'
 
 import {
   Annotation,
@@ -37,6 +38,11 @@ import {ActionTestSummaryGroup} from '../dev/@types/ActionTestSummaryGroup.d'
 import {ActionTestableSummary} from '../dev/@types/ActionTestableSummary.d'
 import {ActionsInvocationMetadata} from '../dev/@types/ActionsInvocationMetadata.d'
 import {ActionsInvocationRecord} from '../dev/@types/ActionsInvocationRecord.d'
+import {
+  TestResults_Tests,
+  TestNode,
+  TestResult
+} from '../dev/@types/TestResults_Tests'
 
 import {Activity} from './activity'
 import {ActivityLogSection} from '../dev/@types/ActivityLogSection.d'
@@ -69,13 +75,20 @@ export class Formatter {
   async format(
     options: FormatterOptions = new FormatterOptions()
   ): Promise<TestReport> {
+    const xcodeVersion = await getXcodeVersion()
+    if (xcodeVersion >= 16) {
+      const modernResult = await this.parser.parseModernTests()
+      return this.formatModern(modernResult, options)
+    }
+
+    // Fall back to legacy format
     const actionsInvocationRecord: ActionsInvocationRecord =
-      await this.parser.parse()
+      await this.parser.parseLegacy()
 
     const testReport = new TestReport()
 
     if (actionsInvocationRecord.metadataRef) {
-      const metadata: ActionsInvocationMetadata = await this.parser.parse(
+      const metadata: ActionsInvocationMetadata = await this.parser.parseLegacy(
         actionsInvocationRecord.metadataRef.id
       )
 
@@ -86,7 +99,7 @@ export class Formatter {
     if (actionsInvocationRecord.actions) {
       for (const action of actionsInvocationRecord.actions) {
         if (action.buildResult.logRef) {
-          const log: ActivityLogSection = await this.parser.parse(
+          const log: ActivityLogSection = await this.parser.parseLegacy(
             action.buildResult.logRef.id
           )
           const buildLog = new BuildLog(
@@ -111,7 +124,7 @@ export class Formatter {
             testReport.chapters.push(testReportChapter)
 
             const actionTestPlanRunSummaries: ActionTestPlanRunSummaries =
-              await this.parser.parse(action.actionResult.testsRef.id)
+              await this.parser.parseLegacy(action.actionResult.testsRef.id)
 
             for (const summary of actionTestPlanRunSummaries.summaries) {
               for (const testableSummary of summary.testableSummaries) {
@@ -376,9 +389,8 @@ export class Formatter {
               const testResult = detail as ActionTestMetadata
 
               if (testResult.summaryRef) {
-                const summary: ActionTestSummary = await this.parser.parse(
-                  testResult.summaryRef.id
-                )
+                const summary: ActionTestSummary =
+                  await this.parser.parseLegacy(testResult.summaryRef.id)
 
                 const testFailureGroup = new TestFailureGroup(
                   testResultSummaryName || '',
@@ -677,9 +689,8 @@ export class Formatter {
               const resultLines: string[] = []
 
               if (testResult.summaryRef) {
-                const summary: ActionTestSummary = await this.parser.parse(
-                  testResult.summaryRef.id
-                )
+                const summary: ActionTestSummary =
+                  await this.parser.parseLegacy(testResult.summaryRef.id)
 
                 if (summary.configuration) {
                   if (testResult.name) {
@@ -915,6 +926,445 @@ export class Formatter {
           indent + 1
         )
       }
+    }
+  }
+
+  async formatModern(
+    modernResult: TestResults_Tests,
+    options: FormatterOptions
+  ): Promise<TestReport> {
+    const testReport = new TestReport()
+
+    // Extract device info for display
+    const device = modernResult.devices[0]
+    const deviceInfo = device
+      ? `${device.modelName}, ${device.platform || ''} ${device.osVersion}`
+      : 'Unknown Device'
+
+    // Process test nodes to collect statistics and details
+    const testStats = {
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      expectedFailure: 0,
+      total: 0,
+      duration: 0
+    }
+
+    interface TestCaseInfo {
+      name: string
+      identifier: string
+      result: TestResult
+      duration: number
+      suiteName: string
+      bundleName: string
+    }
+
+    const testCases: TestCaseInfo[] = []
+    const failedTests: TestCaseInfo[] = []
+
+    // Recursive function to collect test cases from nodes
+    const collectTestCases = (
+      nodes: TestNode[],
+      bundleName: string,
+      suiteName: string
+    ): void => {
+      for (const node of nodes) {
+        if (node.nodeType === 'Test Case') {
+          const testCase: TestCaseInfo = {
+            name: node.name,
+            identifier: node.nodeIdentifier || node.name,
+            result: node.result || 'unknown',
+            duration: node.durationInSeconds || 0,
+            suiteName,
+            bundleName
+          }
+          testCases.push(testCase)
+
+          // Update stats
+          testStats.total++
+          testStats.duration += testCase.duration
+
+          switch (node.result) {
+            case 'Passed':
+              testStats.passed++
+              break
+            case 'Failed':
+              testStats.failed++
+              failedTests.push(testCase)
+              break
+            case 'Skipped':
+              testStats.skipped++
+              break
+            case 'Expected Failure':
+              testStats.expectedFailure++
+              break
+          }
+        }
+
+        if (node.children) {
+          const newSuiteName =
+            node.nodeType === 'Test Suite' ? node.name : suiteName
+          const newBundleName =
+            node.nodeType === 'Unit test bundle' ||
+            node.nodeType === 'UI test bundle'
+              ? node.name
+              : bundleName
+          collectTestCases(node.children, newBundleName, newSuiteName)
+        }
+      }
+    }
+
+    // Process all test nodes
+    for (const testNode of modernResult.testNodes) {
+      if (testNode.children) {
+        collectTestCases(testNode.children, testNode.name, '')
+      }
+    }
+
+    // Create a mock run destination for compatibility
+    const mockRunDestination = {
+      targetDeviceRecord: {
+        modelName: device?.modelName || 'Unknown',
+        operatingSystemVersionWithBuildNumber: device
+          ? `${device.osVersion} (${device.osBuildNumber || ''})`
+          : 'Unknown'
+      },
+      targetSDKRecord: {
+        name: device?.platform || 'Unknown',
+        operatingSystemVersion: device?.osVersion || 'Unknown'
+      }
+    }
+
+    // Create test report chapter
+    const testPlanName = modernResult.testNodes[0]?.name || 'Test Results'
+    const testReportChapter = new TestReportChapter(
+      'Test',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mockRunDestination as any,
+      testPlanName
+    )
+    testReport.chapters.push(testReportChapter)
+
+    // Build chapter summary
+    const chapterSummary = new TestReportChapterSummary()
+    testReportChapter.summaries.push(chapterSummary)
+
+    chapterSummary.content.push('### Summary')
+    chapterSummary.content.push('<table>')
+    chapterSummary.content.push('<tr>')
+    const header = [
+      `<th>Total`,
+      `<th>${passedIcon}&nbsp;Passed`,
+      `<th>${failedIcon}&nbsp;Failed`,
+      `<th>${skippedIcon}&nbsp;Skipped`,
+      `<th>${expectedFailureIcon}&nbsp;Expected Failure`,
+      `<th>:stopwatch:&nbsp;Time`
+    ].join('')
+    chapterSummary.content.push(header)
+
+    chapterSummary.content.push('<tr>')
+    let failedCount: string
+    if (testStats.failed > 0) {
+      failedCount = `<b>${testStats.failed}</b>`
+    } else {
+      failedCount = `${testStats.failed}`
+    }
+    const duration = testStats.duration.toFixed(2)
+    const cols = [
+      `<td align="right" width="118px">${testStats.total}`,
+      `<td align="right" width="118px">${testStats.passed}`,
+      `<td align="right" width="118px">${failedCount}`,
+      `<td align="right" width="118px">${testStats.skipped}`,
+      `<td align="right" width="158px">${testStats.expectedFailure}`,
+      `<td align="right" width="138px">${duration}s`
+    ].join('')
+    chapterSummary.content.push(cols)
+    chapterSummary.content.push('</table>\n')
+
+    chapterSummary.content.push('---\n')
+
+    // Set test status based on results
+    if (testStats.failed > 0) {
+      testReport.testStatus = 'failure'
+    } else if (testStats.passed > 0) {
+      testReport.testStatus = 'success'
+    }
+
+    // Build test summary grouped by test suite
+    chapterSummary.content.push('### Test Summary')
+
+    // Group test cases by bundle and suite
+    const testGroups: {
+      [bundleName: string]: {[suiteName: string]: TestCaseInfo[]}
+    } = {}
+
+    for (const testCase of testCases) {
+      if (!testGroups[testCase.bundleName]) {
+        testGroups[testCase.bundleName] = {}
+      }
+      if (!testGroups[testCase.bundleName][testCase.suiteName]) {
+        testGroups[testCase.bundleName][testCase.suiteName] = []
+      }
+      testGroups[testCase.bundleName][testCase.suiteName].push(testCase)
+    }
+
+    for (const [bundleName, suites] of Object.entries(testGroups)) {
+      const anchorName = anchorIdentifier(bundleName)
+      const anchorTag = anchorNameTag(`${bundleName}_summary`)
+      chapterSummary.content.push(
+        `#### ${anchorTag}[${bundleName}](${anchorName})\n`
+      )
+
+      chapterSummary.content.push(`- **Device:** ${deviceInfo}`)
+
+      chapterSummary.content.push('<table>')
+      chapterSummary.content.push('<tr>')
+      const tableHeader = [
+        `<th>Test`,
+        `<th>Total`,
+        `<th>${passedIcon}`,
+        `<th>${failedIcon}`,
+        `<th>${skippedIcon}`,
+        `<th>${expectedFailureIcon}`
+      ].join('')
+      chapterSummary.content.push(tableHeader)
+
+      for (const [suiteName, cases] of Object.entries(suites)) {
+        const suiteStats = {
+          passed: 0,
+          failed: 0,
+          skipped: 0,
+          expectedFailure: 0,
+          total: cases.length
+        }
+
+        for (const testCase of cases) {
+          switch (testCase.result) {
+            case 'Passed':
+              suiteStats.passed++
+              break
+            case 'Failed':
+              suiteStats.failed++
+              break
+            case 'Skipped':
+              suiteStats.skipped++
+              break
+            case 'Expected Failure':
+              suiteStats.expectedFailure++
+              break
+          }
+        }
+
+        chapterSummary.content.push('<tr>')
+        const testClass = `${testClassIcon}&nbsp;${suiteName}`
+        const testClassAnchor = anchorNameTag(
+          `${bundleName}_${suiteName}_summary`
+        )
+        const suiteAnchorName = anchorIdentifier(`${bundleName}_${suiteName}`)
+        const testClassLink = `<a href="${suiteAnchorName}">${testClass}</a>`
+
+        let suiteFailedCount: string
+        if (suiteStats.failed > 0) {
+          suiteFailedCount = `<b>${suiteStats.failed}</b>`
+        } else {
+          suiteFailedCount = `${suiteStats.failed}`
+        }
+        const suiteCols = [
+          `<td align="left" width="368px">${testClassAnchor}${testClassLink}`,
+          `<td align="right" width="80px">${suiteStats.total}`,
+          `<td align="right" width="80px">${suiteStats.passed}`,
+          `<td align="right" width="80px">${suiteFailedCount}`,
+          `<td align="right" width="80px">${suiteStats.skipped}`,
+          `<td align="right" width="80px">${suiteStats.expectedFailure}`
+        ].join('')
+        chapterSummary.content.push(suiteCols)
+      }
+      chapterSummary.content.push('')
+      chapterSummary.content.push('</table>\n')
+    }
+
+    chapterSummary.content.push('---\n')
+
+    // Build failures section
+    chapterSummary.content.push(`### ${failedIcon} Failures`)
+
+    if (failedTests.length > 0) {
+      const summaryFailures: string[] = []
+      for (const failure of failedTests) {
+        const testIdentifier = `${failure.bundleName}_${failure.identifier}`
+        const anchorName = anchorIdentifier(testIdentifier)
+        const anchorTag = anchorNameTag(`${testIdentifier}_failure-summary`)
+        const testMethodLink = `${anchorTag}<a href="${anchorName}">${failure.suiteName}/${failure.name}</a>`
+        summaryFailures.push(`<h4>${testMethodLink}</h4>`)
+      }
+      chapterSummary.content.push(summaryFailures.join('\n'))
+      chapterSummary.content.push('')
+    } else {
+      chapterSummary.content.push('All tests passed :tada:\n')
+    }
+
+    // Build test details section
+    const chapterDetail = new TestReportChapterDetail()
+    testReportChapter.details.push(chapterDetail)
+
+    chapterDetail.content.push('### Test Details\n')
+
+    for (const [bundleName, suites] of Object.entries(testGroups)) {
+      const bundleAnchorTag = anchorNameTag(bundleName)
+      const bundleAnchorName = anchorIdentifier(`${bundleName}_summary`)
+      chapterDetail.content.push(
+        `#### ${bundleAnchorTag}${bundleName}[${backIcon}](${bundleAnchorName})`
+      )
+      chapterDetail.content.push('')
+
+      for (const [suiteName, cases] of Object.entries(suites)) {
+        const suiteStats = {
+          passed: 0,
+          failed: 0,
+          skipped: 0,
+          expectedFailure: 0,
+          total: cases.length,
+          duration: 0
+        }
+
+        for (const testCase of cases) {
+          suiteStats.duration += testCase.duration
+          switch (testCase.result) {
+            case 'Passed':
+              suiteStats.passed++
+              break
+            case 'Failed':
+              suiteStats.failed++
+              break
+            case 'Skipped':
+              suiteStats.skipped++
+              break
+            case 'Expected Failure':
+              suiteStats.expectedFailure++
+              break
+          }
+        }
+
+        const passedRate = (
+          (suiteStats.passed / suiteStats.total) *
+          100
+        ).toFixed(0)
+        const failedRate = (
+          (suiteStats.failed / suiteStats.total) *
+          100
+        ).toFixed(0)
+        const skippedRate = (
+          (suiteStats.skipped / suiteStats.total) *
+          100
+        ).toFixed(0)
+        const expectedFailureRate = (
+          (suiteStats.expectedFailure / suiteStats.total) *
+          100
+        ).toFixed(0)
+        const suiteDuration = suiteStats.duration.toFixed(2)
+
+        const suiteAnchorTag = anchorNameTag(`${bundleName}_${suiteName}`)
+        const suiteAnchorName = anchorIdentifier(
+          `${bundleName}_${suiteName}_summary`
+        )
+        const anchorBack = `[${backIcon}](${suiteAnchorName})`
+        chapterDetail.content.push(
+          `${suiteAnchorTag}<h5>${suiteName}&nbsp;${anchorBack}</h5>`
+        )
+
+        const testsStatsLines: string[] = []
+        testsStatsLines.push('<table>')
+        testsStatsLines.push('<tr>')
+        const statsHeader = [
+          `<th>${passedIcon}`,
+          `<th>${failedIcon}`,
+          `<th>${skippedIcon}`,
+          `<th>${expectedFailureIcon}`,
+          `<th>:stopwatch:`
+        ].join('')
+        testsStatsLines.push(statsHeader)
+
+        testsStatsLines.push('<tr>')
+        let detailFailedCount: string
+        if (suiteStats.failed > 0) {
+          detailFailedCount = `<b>${suiteStats.failed} (${failedRate}%)</b>`
+        } else {
+          detailFailedCount = `${suiteStats.failed} (${failedRate}%)`
+        }
+        const statsCols = [
+          `<td align="right" width="154px">${suiteStats.passed} (${passedRate}%)`,
+          `<td align="right" width="154px">${detailFailedCount}`,
+          `<td align="right" width="154px">${suiteStats.skipped} (${skippedRate}%)`,
+          `<td align="right" width="154px">${suiteStats.expectedFailure} (${expectedFailureRate}%)`,
+          `<td align="right" width="154px">${suiteDuration}s`
+        ].join('')
+        testsStatsLines.push(statsCols)
+        testsStatsLines.push('</table>\n')
+
+        chapterDetail.content.push(testsStatsLines.join('\n'))
+
+        // Show individual test cases
+        const testDetailTable: string[] = []
+        testDetailTable.push(`<table>`)
+
+        for (const testCase of cases) {
+          const isFailure = testCase.result === 'Failed'
+
+          // Skip passed tests if option is set
+          if (!options.showPassedTests && !isFailure) {
+            continue
+          }
+
+          const status = this.getModernTestStatusIcon(testCase.result)
+          const valign = `valign="top"`
+          const colWidth = 'width="52px"'
+          const detailWidth = 'width="716px"'
+
+          const testMethodAnchorTag = isFailure
+            ? anchorNameTag(`${bundleName}_${testCase.identifier}`)
+            : ''
+          const backAnchorName = anchorIdentifier(
+            `${bundleName}_${testCase.identifier}_failure-summary`
+          )
+          const backAnchorLink = isFailure
+            ? `<a href="${backAnchorName}">${backIcon}</a>`
+            : ''
+          const testMethod = `${testMethodAnchorTag}${testMethodIcon}&nbsp;<code>${testCase.name}</code>${backAnchorLink}`
+
+          const testResultRow = `<tr><td align="center" ${valign} ${colWidth}>${status}<td ${valign} ${detailWidth}>${testMethod}`
+          testDetailTable.push(testResultRow)
+        }
+
+        testDetailTable.push(`</table>`)
+        testDetailTable.push('')
+
+        if (
+          testDetailTable.join('').trim() === '<table></table>' ||
+          testDetailTable.length <= 2
+        ) {
+          chapterDetail.content.push('All tests passed :tada:\n')
+        } else {
+          chapterDetail.content.push(testDetailTable.join('\n'))
+        }
+      }
+    }
+
+    return testReport
+  }
+
+  private getModernTestStatusIcon(result: TestResult): string {
+    switch (result) {
+      case 'Passed':
+        return passedIcon
+      case 'Failed':
+        return failedIcon
+      case 'Skipped':
+        return skippedIcon
+      case 'Expected Failure':
+        return expectedFailureIcon
+      default:
+        return ''
     }
   }
 }

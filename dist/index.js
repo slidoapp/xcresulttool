@@ -272,6 +272,7 @@ exports.FormatterOptions = exports.Formatter = void 0;
 const Image = __importStar(__nccwpck_require__(21281));
 const github = __importStar(__nccwpck_require__(95438));
 const path = __importStar(__nccwpck_require__(71017));
+const xcode_1 = __nccwpck_require__(33339);
 const report_1 = __nccwpck_require__(28269);
 const markdown_1 = __nccwpck_require__(15821);
 const coverage_1 = __nccwpck_require__(45730);
@@ -295,17 +296,23 @@ class Formatter {
         this.parser = new parser_1.Parser(this.bundlePath);
     }
     async format(options = new FormatterOptions()) {
-        const actionsInvocationRecord = await this.parser.parse();
+        const xcodeVersion = await (0, xcode_1.getXcodeVersion)();
+        if (xcodeVersion >= 16) {
+            const modernResult = await this.parser.parseModernTests();
+            return this.formatModern(modernResult, options);
+        }
+        // Fall back to legacy format
+        const actionsInvocationRecord = await this.parser.parseLegacy();
         const testReport = new report_1.TestReport();
         if (actionsInvocationRecord.metadataRef) {
-            const metadata = await this.parser.parse(actionsInvocationRecord.metadataRef.id);
+            const metadata = await this.parser.parseLegacy(actionsInvocationRecord.metadataRef.id);
             testReport.entityName = metadata.schemeIdentifier?.entityName;
             testReport.creatingWorkspaceFilePath = metadata.creatingWorkspaceFilePath;
         }
         if (actionsInvocationRecord.actions) {
             for (const action of actionsInvocationRecord.actions) {
                 if (action.buildResult.logRef) {
-                    const log = await this.parser.parse(action.buildResult.logRef.id);
+                    const log = await this.parser.parseLegacy(action.buildResult.logRef.id);
                     const buildLog = new report_1.BuildLog(log, testReport.creatingWorkspaceFilePath);
                     if (buildLog.content.length) {
                         testReport.buildLog = buildLog;
@@ -319,7 +326,7 @@ class Formatter {
                     if (action.actionResult.testsRef) {
                         const testReportChapter = new report_1.TestReportChapter(action.schemeCommandName, action.runDestination, action.title);
                         testReport.chapters.push(testReportChapter);
-                        const actionTestPlanRunSummaries = await this.parser.parse(action.actionResult.testsRef.id);
+                        const actionTestPlanRunSummaries = await this.parser.parseLegacy(action.actionResult.testsRef.id);
                         for (const summary of actionTestPlanRunSummaries.summaries) {
                             for (const testableSummary of summary.testableSummaries) {
                                 const testSummaries = [];
@@ -531,7 +538,7 @@ class Formatter {
                         for (const [, detail] of details.entries()) {
                             const testResult = detail;
                             if (testResult.summaryRef) {
-                                const summary = await this.parser.parse(testResult.summaryRef.id);
+                                const summary = await this.parser.parseLegacy(testResult.summaryRef.id);
                                 const testFailureGroup = new report_1.TestFailureGroup(testResultSummaryName || '', summary.identifier || '', summary.name || '');
                                 testFailures.failureGroups.push(testFailureGroup);
                                 if (summary.failureSummaries) {
@@ -751,7 +758,7 @@ class Formatter {
                             const status = Image.testStatus(testResult.testStatus);
                             const resultLines = [];
                             if (testResult.summaryRef) {
-                                const summary = await this.parser.parse(testResult.summaryRef.id);
+                                const summary = await this.parser.parseLegacy(testResult.summaryRef.id);
                                 if (summary.configuration) {
                                     if (testResult.name) {
                                         const anchorTag = (0, markdown_1.anchorNameTag)(`${testResultSummaryName}_${testResult.identifier}`);
@@ -939,6 +946,357 @@ class Formatter {
             if (activitySummary.subactivities) {
                 await this.collectActivities(activitySummary.subactivities, activities, indent + 1);
             }
+        }
+    }
+    async formatModern(modernResult, options) {
+        const testReport = new report_1.TestReport();
+        // Extract device info for display
+        const device = modernResult.devices[0];
+        const deviceInfo = device
+            ? `${device.modelName}, ${device.platform || ''} ${device.osVersion}`
+            : 'Unknown Device';
+        // Process test nodes to collect statistics and details
+        const testStats = {
+            passed: 0,
+            failed: 0,
+            skipped: 0,
+            expectedFailure: 0,
+            total: 0,
+            duration: 0
+        };
+        const testCases = [];
+        const failedTests = [];
+        // Recursive function to collect test cases from nodes
+        const collectTestCases = (nodes, bundleName, suiteName) => {
+            for (const node of nodes) {
+                if (node.nodeType === 'Test Case') {
+                    const testCase = {
+                        name: node.name,
+                        identifier: node.nodeIdentifier || node.name,
+                        result: node.result || 'unknown',
+                        duration: node.durationInSeconds || 0,
+                        suiteName,
+                        bundleName
+                    };
+                    testCases.push(testCase);
+                    // Update stats
+                    testStats.total++;
+                    testStats.duration += testCase.duration;
+                    switch (node.result) {
+                        case 'Passed':
+                            testStats.passed++;
+                            break;
+                        case 'Failed':
+                            testStats.failed++;
+                            failedTests.push(testCase);
+                            break;
+                        case 'Skipped':
+                            testStats.skipped++;
+                            break;
+                        case 'Expected Failure':
+                            testStats.expectedFailure++;
+                            break;
+                    }
+                }
+                if (node.children) {
+                    const newSuiteName = node.nodeType === 'Test Suite' ? node.name : suiteName;
+                    const newBundleName = node.nodeType === 'Unit test bundle' ||
+                        node.nodeType === 'UI test bundle'
+                        ? node.name
+                        : bundleName;
+                    collectTestCases(node.children, newBundleName, newSuiteName);
+                }
+            }
+        };
+        // Process all test nodes
+        for (const testNode of modernResult.testNodes) {
+            if (testNode.children) {
+                collectTestCases(testNode.children, testNode.name, '');
+            }
+        }
+        // Create a mock run destination for compatibility
+        const mockRunDestination = {
+            targetDeviceRecord: {
+                modelName: device?.modelName || 'Unknown',
+                operatingSystemVersionWithBuildNumber: device
+                    ? `${device.osVersion} (${device.osBuildNumber || ''})`
+                    : 'Unknown'
+            },
+            targetSDKRecord: {
+                name: device?.platform || 'Unknown',
+                operatingSystemVersion: device?.osVersion || 'Unknown'
+            }
+        };
+        // Create test report chapter
+        const testPlanName = modernResult.testNodes[0]?.name || 'Test Results';
+        const testReportChapter = new report_1.TestReportChapter('Test', 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        mockRunDestination, testPlanName);
+        testReport.chapters.push(testReportChapter);
+        // Build chapter summary
+        const chapterSummary = new report_1.TestReportChapterSummary();
+        testReportChapter.summaries.push(chapterSummary);
+        chapterSummary.content.push('### Summary');
+        chapterSummary.content.push('<table>');
+        chapterSummary.content.push('<tr>');
+        const header = [
+            `<th>Total`,
+            `<th>${passedIcon}&nbsp;Passed`,
+            `<th>${failedIcon}&nbsp;Failed`,
+            `<th>${skippedIcon}&nbsp;Skipped`,
+            `<th>${expectedFailureIcon}&nbsp;Expected Failure`,
+            `<th>:stopwatch:&nbsp;Time`
+        ].join('');
+        chapterSummary.content.push(header);
+        chapterSummary.content.push('<tr>');
+        let failedCount;
+        if (testStats.failed > 0) {
+            failedCount = `<b>${testStats.failed}</b>`;
+        }
+        else {
+            failedCount = `${testStats.failed}`;
+        }
+        const duration = testStats.duration.toFixed(2);
+        const cols = [
+            `<td align="right" width="118px">${testStats.total}`,
+            `<td align="right" width="118px">${testStats.passed}`,
+            `<td align="right" width="118px">${failedCount}`,
+            `<td align="right" width="118px">${testStats.skipped}`,
+            `<td align="right" width="158px">${testStats.expectedFailure}`,
+            `<td align="right" width="138px">${duration}s`
+        ].join('');
+        chapterSummary.content.push(cols);
+        chapterSummary.content.push('</table>\n');
+        chapterSummary.content.push('---\n');
+        // Set test status based on results
+        if (testStats.failed > 0) {
+            testReport.testStatus = 'failure';
+        }
+        else if (testStats.passed > 0) {
+            testReport.testStatus = 'success';
+        }
+        // Build test summary grouped by test suite
+        chapterSummary.content.push('### Test Summary');
+        // Group test cases by bundle and suite
+        const testGroups = {};
+        for (const testCase of testCases) {
+            if (!testGroups[testCase.bundleName]) {
+                testGroups[testCase.bundleName] = {};
+            }
+            if (!testGroups[testCase.bundleName][testCase.suiteName]) {
+                testGroups[testCase.bundleName][testCase.suiteName] = [];
+            }
+            testGroups[testCase.bundleName][testCase.suiteName].push(testCase);
+        }
+        for (const [bundleName, suites] of Object.entries(testGroups)) {
+            const anchorName = (0, markdown_1.anchorIdentifier)(bundleName);
+            const anchorTag = (0, markdown_1.anchorNameTag)(`${bundleName}_summary`);
+            chapterSummary.content.push(`#### ${anchorTag}[${bundleName}](${anchorName})\n`);
+            chapterSummary.content.push(`- **Device:** ${deviceInfo}`);
+            chapterSummary.content.push('<table>');
+            chapterSummary.content.push('<tr>');
+            const tableHeader = [
+                `<th>Test`,
+                `<th>Total`,
+                `<th>${passedIcon}`,
+                `<th>${failedIcon}`,
+                `<th>${skippedIcon}`,
+                `<th>${expectedFailureIcon}`
+            ].join('');
+            chapterSummary.content.push(tableHeader);
+            for (const [suiteName, cases] of Object.entries(suites)) {
+                const suiteStats = {
+                    passed: 0,
+                    failed: 0,
+                    skipped: 0,
+                    expectedFailure: 0,
+                    total: cases.length
+                };
+                for (const testCase of cases) {
+                    switch (testCase.result) {
+                        case 'Passed':
+                            suiteStats.passed++;
+                            break;
+                        case 'Failed':
+                            suiteStats.failed++;
+                            break;
+                        case 'Skipped':
+                            suiteStats.skipped++;
+                            break;
+                        case 'Expected Failure':
+                            suiteStats.expectedFailure++;
+                            break;
+                    }
+                }
+                chapterSummary.content.push('<tr>');
+                const testClass = `${testClassIcon}&nbsp;${suiteName}`;
+                const testClassAnchor = (0, markdown_1.anchorNameTag)(`${bundleName}_${suiteName}_summary`);
+                const suiteAnchorName = (0, markdown_1.anchorIdentifier)(`${bundleName}_${suiteName}`);
+                const testClassLink = `<a href="${suiteAnchorName}">${testClass}</a>`;
+                let suiteFailedCount;
+                if (suiteStats.failed > 0) {
+                    suiteFailedCount = `<b>${suiteStats.failed}</b>`;
+                }
+                else {
+                    suiteFailedCount = `${suiteStats.failed}`;
+                }
+                const suiteCols = [
+                    `<td align="left" width="368px">${testClassAnchor}${testClassLink}`,
+                    `<td align="right" width="80px">${suiteStats.total}`,
+                    `<td align="right" width="80px">${suiteStats.passed}`,
+                    `<td align="right" width="80px">${suiteFailedCount}`,
+                    `<td align="right" width="80px">${suiteStats.skipped}`,
+                    `<td align="right" width="80px">${suiteStats.expectedFailure}`
+                ].join('');
+                chapterSummary.content.push(suiteCols);
+            }
+            chapterSummary.content.push('');
+            chapterSummary.content.push('</table>\n');
+        }
+        chapterSummary.content.push('---\n');
+        // Build failures section
+        chapterSummary.content.push(`### ${failedIcon} Failures`);
+        if (failedTests.length > 0) {
+            const summaryFailures = [];
+            for (const failure of failedTests) {
+                const testIdentifier = `${failure.bundleName}_${failure.identifier}`;
+                const anchorName = (0, markdown_1.anchorIdentifier)(testIdentifier);
+                const anchorTag = (0, markdown_1.anchorNameTag)(`${testIdentifier}_failure-summary`);
+                const testMethodLink = `${anchorTag}<a href="${anchorName}">${failure.suiteName}/${failure.name}</a>`;
+                summaryFailures.push(`<h4>${testMethodLink}</h4>`);
+            }
+            chapterSummary.content.push(summaryFailures.join('\n'));
+            chapterSummary.content.push('');
+        }
+        else {
+            chapterSummary.content.push('All tests passed :tada:\n');
+        }
+        // Build test details section
+        const chapterDetail = new report_1.TestReportChapterDetail();
+        testReportChapter.details.push(chapterDetail);
+        chapterDetail.content.push('### Test Details\n');
+        for (const [bundleName, suites] of Object.entries(testGroups)) {
+            const bundleAnchorTag = (0, markdown_1.anchorNameTag)(bundleName);
+            const bundleAnchorName = (0, markdown_1.anchorIdentifier)(`${bundleName}_summary`);
+            chapterDetail.content.push(`#### ${bundleAnchorTag}${bundleName}[${backIcon}](${bundleAnchorName})`);
+            chapterDetail.content.push('');
+            for (const [suiteName, cases] of Object.entries(suites)) {
+                const suiteStats = {
+                    passed: 0,
+                    failed: 0,
+                    skipped: 0,
+                    expectedFailure: 0,
+                    total: cases.length,
+                    duration: 0
+                };
+                for (const testCase of cases) {
+                    suiteStats.duration += testCase.duration;
+                    switch (testCase.result) {
+                        case 'Passed':
+                            suiteStats.passed++;
+                            break;
+                        case 'Failed':
+                            suiteStats.failed++;
+                            break;
+                        case 'Skipped':
+                            suiteStats.skipped++;
+                            break;
+                        case 'Expected Failure':
+                            suiteStats.expectedFailure++;
+                            break;
+                    }
+                }
+                const passedRate = ((suiteStats.passed / suiteStats.total) *
+                    100).toFixed(0);
+                const failedRate = ((suiteStats.failed / suiteStats.total) *
+                    100).toFixed(0);
+                const skippedRate = ((suiteStats.skipped / suiteStats.total) *
+                    100).toFixed(0);
+                const expectedFailureRate = ((suiteStats.expectedFailure / suiteStats.total) *
+                    100).toFixed(0);
+                const suiteDuration = suiteStats.duration.toFixed(2);
+                const suiteAnchorTag = (0, markdown_1.anchorNameTag)(`${bundleName}_${suiteName}`);
+                const suiteAnchorName = (0, markdown_1.anchorIdentifier)(`${bundleName}_${suiteName}_summary`);
+                const anchorBack = `[${backIcon}](${suiteAnchorName})`;
+                chapterDetail.content.push(`${suiteAnchorTag}<h5>${suiteName}&nbsp;${anchorBack}</h5>`);
+                const testsStatsLines = [];
+                testsStatsLines.push('<table>');
+                testsStatsLines.push('<tr>');
+                const statsHeader = [
+                    `<th>${passedIcon}`,
+                    `<th>${failedIcon}`,
+                    `<th>${skippedIcon}`,
+                    `<th>${expectedFailureIcon}`,
+                    `<th>:stopwatch:`
+                ].join('');
+                testsStatsLines.push(statsHeader);
+                testsStatsLines.push('<tr>');
+                let detailFailedCount;
+                if (suiteStats.failed > 0) {
+                    detailFailedCount = `<b>${suiteStats.failed} (${failedRate}%)</b>`;
+                }
+                else {
+                    detailFailedCount = `${suiteStats.failed} (${failedRate}%)`;
+                }
+                const statsCols = [
+                    `<td align="right" width="154px">${suiteStats.passed} (${passedRate}%)`,
+                    `<td align="right" width="154px">${detailFailedCount}`,
+                    `<td align="right" width="154px">${suiteStats.skipped} (${skippedRate}%)`,
+                    `<td align="right" width="154px">${suiteStats.expectedFailure} (${expectedFailureRate}%)`,
+                    `<td align="right" width="154px">${suiteDuration}s`
+                ].join('');
+                testsStatsLines.push(statsCols);
+                testsStatsLines.push('</table>\n');
+                chapterDetail.content.push(testsStatsLines.join('\n'));
+                // Show individual test cases
+                const testDetailTable = [];
+                testDetailTable.push(`<table>`);
+                for (const testCase of cases) {
+                    const isFailure = testCase.result === 'Failed';
+                    // Skip passed tests if option is set
+                    if (!options.showPassedTests && !isFailure) {
+                        continue;
+                    }
+                    const status = this.getModernTestStatusIcon(testCase.result);
+                    const valign = `valign="top"`;
+                    const colWidth = 'width="52px"';
+                    const detailWidth = 'width="716px"';
+                    const testMethodAnchorTag = isFailure
+                        ? (0, markdown_1.anchorNameTag)(`${bundleName}_${testCase.identifier}`)
+                        : '';
+                    const backAnchorName = (0, markdown_1.anchorIdentifier)(`${bundleName}_${testCase.identifier}_failure-summary`);
+                    const backAnchorLink = isFailure
+                        ? `<a href="${backAnchorName}">${backIcon}</a>`
+                        : '';
+                    const testMethod = `${testMethodAnchorTag}${testMethodIcon}&nbsp;<code>${testCase.name}</code>${backAnchorLink}`;
+                    const testResultRow = `<tr><td align="center" ${valign} ${colWidth}>${status}<td ${valign} ${detailWidth}>${testMethod}`;
+                    testDetailTable.push(testResultRow);
+                }
+                testDetailTable.push(`</table>`);
+                testDetailTable.push('');
+                if (testDetailTable.join('').trim() === '<table></table>' ||
+                    testDetailTable.length <= 2) {
+                    chapterDetail.content.push('All tests passed :tada:\n');
+                }
+                else {
+                    chapterDetail.content.push(testDetailTable.join('\n'));
+                }
+            }
+        }
+        return testReport;
+    }
+    getModernTestStatusIcon(result) {
+        switch (result) {
+            case 'Passed':
+                return passedIcon;
+            case 'Failed':
+                return failedIcon;
+            case 'Skipped':
+                return skippedIcon;
+            case 'Expected Failure':
+                return expectedFailureIcon;
+            default:
+                return '';
         }
     }
 }
@@ -1265,169 +1623,87 @@ exports.indentation = indentation;
 /***/ }),
 
 /***/ 20267:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 /*eslint-disable @typescript-eslint/no-explicit-any */
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Parser = void 0;
-const core = __importStar(__nccwpck_require__(42186));
-const exec = __importStar(__nccwpck_require__(71514));
-const fs_1 = __nccwpck_require__(57147);
-const xcode_1 = __nccwpck_require__(33339);
-const { readFile } = fs_1.promises;
+const xccov_1 = __nccwpck_require__(44076);
+const xcresulttool_1 = __nccwpck_require__(23016);
 class Parser {
     bundlePath;
     constructor(bundlePath) {
         this.bundlePath = bundlePath;
     }
-    async parse(reference) {
-        const root = JSON.parse(await this.toJSON(reference));
-        return parseObject(root);
+    async parseLegacy(reference) {
+        const tool = new xcresulttool_1.XCResultTool(this.bundlePath);
+        const root = JSON.parse(await tool.getLegacyJSON(reference));
+        return Parser.parseObject(root);
     }
-    async exportObject(reference, outputPath) {
-        const xcodeVersion = await (0, xcode_1.getXcodeVersion)();
-        const args = [
-            'xcresulttool',
-            'export',
-            '--type',
-            'file',
-            '--path',
-            this.bundlePath,
-            '--output-path',
-            outputPath,
-            '--id',
-            reference
-        ];
-        if (xcodeVersion >= 16) {
-            args.push('--legacy');
-        }
-        const options = {
-            silent: !core.isDebug()
-        };
-        await exec.exec('xcrun', args, options);
-        return Buffer.from(await readFile(outputPath));
+    async parseModernTests() {
+        const tool = new xcresulttool_1.XCResultTool(this.bundlePath);
+        const output = await tool.getTestResults_Tests();
+        return JSON.parse(output);
     }
     async exportCodeCoverage() {
-        const args = ['xccov', 'view', '--report', '--json', this.bundlePath];
-        let output = '';
-        const options = {
-            silent: !core.isDebug(),
-            listeners: {
-                stdout: (data) => {
-                    output += data.toString();
-                }
-            }
-        };
-        await exec.exec('xcrun', args, options);
-        return output;
+        const tool = new xccov_1.XCCov(this.bundlePath);
+        return await tool.viewJSONReport();
     }
-    async toJSON(reference) {
-        const xcodeVersion = await (0, xcode_1.getXcodeVersion)();
-        const args = [
-            'xcresulttool',
-            'get',
-            '--path',
-            this.bundlePath,
-            '--format',
-            'json'
-        ];
-        if (reference) {
-            args.push('--id');
-            args.push(reference);
-        }
-        if (xcodeVersion >= 16) {
-            args.push('--legacy');
-        }
-        let output = '';
-        const options = {
-            silent: !core.isDebug(),
-            listeners: {
-                stdout: (data) => {
-                    output += data.toString();
-                }
-            }
-        };
-        await exec.exec('xcrun', args, options);
-        return output;
-    }
-}
-exports.Parser = Parser;
-function parseObject(element) {
-    const obj = {};
-    for (const [key, value] of Object.entries(element)) {
-        if (value['_value']) {
-            obj[key] = parsePrimitive(value);
-        }
-        else if (value['_values']) {
-            obj[key] = parseArray(value);
-        }
-        else if (key === '_type') {
-            continue;
-        }
-        else {
-            obj[key] = parseObject(value);
-        }
-    }
-    return obj;
-}
-function parseArray(arrayElement) {
-    return arrayElement['_values'].map((arrayValue) => {
+    static parseObject(element) {
         const obj = {};
-        for (const [key, value] of Object.entries(arrayValue)) {
+        for (const [key, value] of Object.entries(element)) {
             if (value['_value']) {
-                obj[key] = parsePrimitive(value);
+                obj[key] = Parser.parsePrimitive(value);
             }
             else if (value['_values']) {
-                obj[key] = parseArray(value);
+                obj[key] = Parser.parseArray(value);
             }
             else if (key === '_type') {
                 continue;
             }
-            else if (key === '_value') {
-                continue;
-            }
             else {
-                obj[key] = parseObject(value);
+                obj[key] = Parser.parseObject(value);
             }
         }
         return obj;
-    });
-}
-function parsePrimitive(element) {
-    switch (element['_type']['_name']) {
-        case 'Int':
-            return parseInt(element['_value']);
-        case 'Double':
-            return parseFloat(element['_value']);
-        default:
-            return element['_value'];
+    }
+    static parseArray(arrayElement) {
+        return arrayElement['_values'].map((arrayValue) => {
+            const obj = {};
+            for (const [key, value] of Object.entries(arrayValue)) {
+                if (value['_value']) {
+                    obj[key] = Parser.parsePrimitive(value);
+                }
+                else if (value['_values']) {
+                    obj[key] = Parser.parseArray(value);
+                }
+                else if (key === '_type') {
+                    continue;
+                }
+                else if (key === '_value') {
+                    continue;
+                }
+                else {
+                    obj[key] = Parser.parseObject(value);
+                }
+            }
+            return obj;
+        });
+    }
+    static parsePrimitive(element) {
+        switch (element['_type']['_name']) {
+            case 'Int':
+                return parseInt(element['_value']);
+            case 'Double':
+                return parseFloat(element['_value']);
+            default:
+                return element['_value'];
+        }
     }
 }
+exports.Parser = Parser;
 
 
 /***/ }),
@@ -1862,6 +2138,152 @@ async function getXcodeVersion() {
     }
 }
 exports.getXcodeVersion = getXcodeVersion;
+
+
+/***/ }),
+
+/***/ 44076:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.XCCov = void 0;
+const core = __importStar(__nccwpck_require__(42186));
+const exec = __importStar(__nccwpck_require__(71514));
+class XCCov {
+    bundlePath;
+    constructor(bundlePath) {
+        this.bundlePath = bundlePath;
+    }
+    async viewJSONReport() {
+        const args = ['xccov', 'view', '--report', '--json', this.bundlePath];
+        let output = '';
+        const options = {
+            silent: !core.isDebug(),
+            listeners: {
+                stdout: (data) => {
+                    output += data.toString();
+                }
+            }
+        };
+        await exec.exec('xcrun', args, options);
+        return output;
+    }
+}
+exports.XCCov = XCCov;
+
+
+/***/ }),
+
+/***/ 23016:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.XCResultTool = void 0;
+const core = __importStar(__nccwpck_require__(42186));
+const exec = __importStar(__nccwpck_require__(71514));
+class XCResultTool {
+    bundlePath;
+    constructor(bundlePath) {
+        this.bundlePath = bundlePath;
+    }
+    async getTestResults_Tests() {
+        const args = [
+            'xcresulttool',
+            'get',
+            'test-results',
+            'tests',
+            '--path',
+            this.bundlePath
+        ];
+        let output = '';
+        const options = {
+            silent: !core.isDebug(),
+            listeners: {
+                stdout: (data) => {
+                    output += data.toString();
+                }
+            }
+        };
+        await exec.exec('xcrun', args, options);
+        return output;
+    }
+    async getLegacyJSON(reference) {
+        const args = [
+            'xcresulttool',
+            'get',
+            '--path',
+            this.bundlePath,
+            '--format',
+            'json'
+        ];
+        if (reference) {
+            args.push('--id');
+            args.push(reference);
+        }
+        let output = '';
+        const options = {
+            silent: !core.isDebug(),
+            listeners: {
+                stdout: (data) => {
+                    output += data.toString();
+                }
+            }
+        };
+        await exec.exec('xcrun', args, options);
+        return output;
+    }
+}
+exports.XCResultTool = XCResultTool;
 
 
 /***/ }),

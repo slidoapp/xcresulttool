@@ -1,149 +1,75 @@
 /*eslint-disable @typescript-eslint/no-explicit-any */
 
-import * as core from '@actions/core'
-import * as exec from '@actions/exec'
-import { promises } from 'fs'
-import { getXcodeVersion } from './xcode'
-
-const { readFile } = promises
+import {TestResults_Tests} from '../dev/@types/TestResults_Tests'
+import {XCCov} from './xctools/xccov'
+import {XCResultTool} from './xctools/xcresulttool'
 
 export class Parser {
-  private bundlePath: string
+  constructor(private bundlePath: string) {}
 
-  constructor(bundlePath: string) {
-    this.bundlePath = bundlePath
+  async parseLegacy(reference?: string): Promise<any> {
+    const tool = new XCResultTool(this.bundlePath)
+    const root = JSON.parse(await tool.getLegacyJSON(reference))
+    return Parser.parseObject(root) as any
   }
 
-  async parse(reference?: string): Promise<any> {
-    const root = JSON.parse(await this.toJSON(reference))
-    return parseObject(root) as any
-  }
-
-  async exportObject(reference: string, outputPath: string): Promise<Buffer> {
-    const xcodeVersion = await getXcodeVersion()
-
-    const args = [
-      'xcresulttool',
-      'export',
-      '--type',
-      'file',
-      '--path',
-      this.bundlePath,
-      '--output-path',
-      outputPath,
-      '--id',
-      reference
-    ]
-
-    if (xcodeVersion >= 16) {
-      args.push('--legacy')
-    }
-
-    const options = {
-      silent: !core.isDebug()
-    }
-
-    await exec.exec('xcrun', args, options)
-    return Buffer.from(await readFile(outputPath))
+  async parseModernTests(): Promise<TestResults_Tests> {
+    const tool = new XCResultTool(this.bundlePath)
+    const output = await tool.getTestResults_Tests()
+    return JSON.parse(output)
   }
 
   async exportCodeCoverage(): Promise<string> {
-    const args = ['xccov', 'view', '--report', '--json', this.bundlePath]
-
-    let output = ''
-    const options = {
-      silent: !core.isDebug(),
-      listeners: {
-        stdout: (data: Buffer) => {
-          output += data.toString()
-        }
-      }
-    }
-
-    await exec.exec('xcrun', args, options)
-    return output
+    const tool = new XCCov(this.bundlePath)
+    return await tool.viewJSONReport()
   }
 
-  private async toJSON(reference?: string): Promise<string> {
-    const xcodeVersion = await getXcodeVersion()
-
-    const args = [
-      'xcresulttool',
-      'get',
-      '--path',
-      this.bundlePath,
-      '--format',
-      'json'
-    ]
-    if (reference) {
-      args.push('--id')
-      args.push(reference)
-    }
-
-    if (xcodeVersion >= 16) {
-      args.push('--legacy')
-    }
-
-    let output = ''
-    const options = {
-      silent: !core.isDebug(),
-      listeners: {
-        stdout: (data: Buffer) => {
-          output += data.toString()
-        }
-      }
-    }
-
-    await exec.exec('xcrun', args, options)
-    return output
-  }
-}
-
-function parseObject(element: object): object {
-  const obj: any = {}
-
-  for (const [key, value] of Object.entries(element)) {
-    if (value['_value']) {
-      obj[key] = parsePrimitive(value)
-    } else if (value['_values']) {
-      obj[key] = parseArray(value)
-    } else if (key === '_type') {
-      continue
-    } else {
-      obj[key] = parseObject(value)
-    }
-  }
-
-  return obj
-}
-
-function parseArray(arrayElement: any): any {
-  return arrayElement['_values'].map((arrayValue: object) => {
+  private static parseObject(element: object): object {
     const obj: any = {}
-    for (const [key, value] of Object.entries(arrayValue)) {
+
+    for (const [key, value] of Object.entries(element)) {
       if (value['_value']) {
-        obj[key] = parsePrimitive(value)
+        obj[key] = Parser.parsePrimitive(value)
       } else if (value['_values']) {
-        obj[key] = parseArray(value)
+        obj[key] = Parser.parseArray(value)
       } else if (key === '_type') {
         continue
-      } else if (key === '_value') {
-        continue
       } else {
-        obj[key] = parseObject(value)
+        obj[key] = Parser.parseObject(value)
       }
     }
-    return obj
-  })
-}
 
-function parsePrimitive(element: any): any {
-  switch (element['_type']['_name']) {
-    case 'Int':
-      return parseInt(element['_value'])
-    case 'Double':
-      return parseFloat(element['_value'])
-    default:
-      return element['_value']
+    return obj
+  }
+
+  private static parseArray(arrayElement: any): any {
+    return arrayElement['_values'].map((arrayValue: object) => {
+      const obj: any = {}
+      for (const [key, value] of Object.entries(arrayValue)) {
+        if (value['_value']) {
+          obj[key] = Parser.parsePrimitive(value)
+        } else if (value['_values']) {
+          obj[key] = Parser.parseArray(value)
+        } else if (key === '_type') {
+          continue
+        } else if (key === '_value') {
+          continue
+        } else {
+          obj[key] = Parser.parseObject(value)
+        }
+      }
+      return obj
+    })
+  }
+
+  private static parsePrimitive(element: any): any {
+    switch (element['_type']['_name']) {
+      case 'Int':
+        return parseInt(element['_value'])
+      case 'Double':
+        return parseFloat(element['_value'])
+      default:
+        return element['_value']
+    }
   }
 }
