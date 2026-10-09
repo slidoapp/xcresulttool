@@ -5,6 +5,20 @@ import {getXcodeVersion} from '../xcode'
 export class XCResultTool {
   constructor(private bundlePath: string) {}
 
+  async getTestResults_Tests(): Promise<string> {
+    return await this.run([
+      'get',
+      'test-results',
+      'tests',
+      '--path',
+      this.bundlePath
+    ])
+  }
+
+  async getBuildResults(): Promise<string> {
+    return await this.run(['get', 'build-results', '--path', this.bundlePath])
+  }
+
   async getLegacyJSON(reference?: string): Promise<string> {
     const args = ['get', '--path', this.bundlePath, '--format', 'json']
     if (reference) {

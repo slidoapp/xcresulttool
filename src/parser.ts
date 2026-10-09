@@ -1,5 +1,7 @@
 /*eslint-disable @typescript-eslint/no-explicit-any */
 
+import {BuildResults} from '../dev/@types/BuildResults'
+import {TestResults_Tests} from '../dev/@types/TestResults_Tests'
 import {XCCov} from './xctools/xccov'
 import {XCResultTool} from './xctools/xcresulttool'
 
@@ -10,6 +12,18 @@ export class Parser {
     const tool = new XCResultTool(this.bundlePath)
     const root = JSON.parse(await tool.getLegacyJSON(reference))
     return Parser.parseObject(root) as any
+  }
+
+  async parseModernTests(): Promise<TestResults_Tests> {
+    const tool = new XCResultTool(this.bundlePath)
+    const output = await tool.getTestResults_Tests()
+    return JSON.parse(output)
+  }
+
+  async parseBuildResults(): Promise<BuildResults> {
+    const tool = new XCResultTool(this.bundlePath)
+    const output = await tool.getBuildResults()
+    return JSON.parse(output)
   }
 
   async exportCodeCoverage(): Promise<string> {

@@ -1,0 +1,398 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "00000000-0000000000000000",
+      "deviceName" : "My Mac",
+      "modelName" : "MacBook Pro",
+      "osBuildNumber" : "26A428",
+      "osVersion" : "27.0",
+      "platform" : "macOS"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "children" : [
+                    {
+                      "children" : [
+                        {
+                          "name" : "XCTAssertEqual failed: (\"3\") is not equal to (\"4\") - math is broken",
+                          "nodeType" : "Failure Message",
+                          "sourceLocation" : {
+                            "filePath" : "/Users/runner/work/Sample/Tests/SampleTests/XCTests.swift",
+                            "lineNumber" : 6
+                          }
+                        }
+                      ],
+                      "duration" : "0,38s",
+                      "durationInSeconds" : 0.3837740421295166,
+                      "name" : "First Run",
+                      "nodeIdentifier" : "1",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/CalculatorXCTests/testAddFails",
+                      "nodeType" : "Repetition",
+                      "result" : "Failed"
+                    },
+                    {
+                      "children" : [
+                        {
+                          "name" : "XCTAssertEqual failed: (\"3\") is not equal to (\"4\") - math is broken",
+                          "nodeType" : "Failure Message",
+                          "sourceLocation" : {
+                            "filePath" : "/Users/runner/work/Sample/Tests/SampleTests/XCTests.swift",
+                            "lineNumber" : 6
+                          }
+                        }
+                      ],
+                      "duration" : "0,00082s",
+                      "durationInSeconds" : 0.0008249282836914062,
+                      "name" : "Retry 1",
+                      "nodeIdentifier" : "2",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/CalculatorXCTests/testAddFails",
+                      "nodeType" : "Repetition",
+                      "result" : "Failed"
+                    }
+                  ],
+                  "details" : "Failed after 2 retries",
+                  "duration" : "0,19s",
+                  "durationInSeconds" : 0.192299485206604,
+                  "name" : "testAddFails()",
+                  "nodeIdentifier" : "CalculatorXCTests/testAddFails()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/CalculatorXCTests/testAddFails",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                },
+                {
+                  "duration" : "0,0005s",
+                  "durationInSeconds" : 0.0004979372024536133,
+                  "name" : "testAddPasses()",
+                  "nodeIdentifier" : "CalculatorXCTests/testAddPasses()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/CalculatorXCTests/testAddPasses",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "known issue",
+                      "nodeType" : "Expected Failure"
+                    }
+                  ],
+                  "duration" : "0,00076s",
+                  "durationInSeconds" : 0.0007569789886474609,
+                  "name" : "testExpectedFailure()",
+                  "nodeIdentifier" : "CalculatorXCTests/testExpectedFailure()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/CalculatorXCTests/testExpectedFailure",
+                  "nodeType" : "Test Case",
+                  "result" : "Expected Failure"
+                },
+                {
+                  "children" : [
+                    {
+                      "children" : [
+                        {
+                          "name" : "XCTAssertTrue failed - first",
+                          "nodeType" : "Failure Message",
+                          "sourceLocation" : {
+                            "filePath" : "/Users/runner/work/Sample/Tests/SampleTests/XCTests.swift",
+                            "lineNumber" : 13
+                          }
+                        },
+                        {
+                          "name" : "XCTAssertEqual failed: (\"a\") is not equal to (\"b\") - second",
+                          "nodeType" : "Failure Message",
+                          "sourceLocation" : {
+                            "filePath" : "/Users/runner/work/Sample/Tests/SampleTests/XCTests.swift",
+                            "lineNumber" : 14
+                          }
+                        }
+                      ],
+                      "duration" : "0,00093s",
+                      "durationInSeconds" : 0.0009299516677856445,
+                      "name" : "First Run",
+                      "nodeIdentifier" : "1",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/CalculatorXCTests/testMultipleFailures",
+                      "nodeType" : "Repetition",
+                      "result" : "Failed"
+                    },
+                    {
+                      "children" : [
+                        {
+                          "name" : "XCTAssertTrue failed - first",
+                          "nodeType" : "Failure Message",
+                          "sourceLocation" : {
+                            "filePath" : "/Users/runner/work/Sample/Tests/SampleTests/XCTests.swift",
+                            "lineNumber" : 13
+                          }
+                        },
+                        {
+                          "name" : "XCTAssertEqual failed: (\"a\") is not equal to (\"b\") - second",
+                          "nodeType" : "Failure Message",
+                          "sourceLocation" : {
+                            "filePath" : "/Users/runner/work/Sample/Tests/SampleTests/XCTests.swift",
+                            "lineNumber" : 14
+                          }
+                        }
+                      ],
+                      "duration" : "0,00096s",
+                      "durationInSeconds" : 0.0009560585021972656,
+                      "name" : "Retry 1",
+                      "nodeIdentifier" : "2",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/CalculatorXCTests/testMultipleFailures",
+                      "nodeType" : "Repetition",
+                      "result" : "Failed"
+                    }
+                  ],
+                  "details" : "Failed after 2 retries",
+                  "duration" : "0,00094s",
+                  "durationInSeconds" : 0.0009430050849914551,
+                  "name" : "testMultipleFailures()",
+                  "nodeIdentifier" : "CalculatorXCTests/testMultipleFailures()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/CalculatorXCTests/testMultipleFailures",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Test skipped - not ready",
+                      "nodeType" : "Skip Message"
+                    }
+                  ],
+                  "duration" : "0,0013s",
+                  "durationInSeconds" : 0.0012660026550292969,
+                  "name" : "testSkipped()",
+                  "nodeIdentifier" : "CalculatorXCTests/testSkipped()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/CalculatorXCTests/testSkipped",
+                  "nodeType" : "Test Case",
+                  "result" : "Skipped"
+                }
+              ],
+              "name" : "CalculatorXCTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/CalculatorXCTests",
+              "nodeType" : "Test Suite",
+              "result" : "Failed"
+            },
+            {
+              "children" : [
+                {
+                  "children" : [
+                    {
+                      "children" : [
+                        {
+                          "children" : [
+                            {
+                              "name" : "Expectation failed: isEven(n)\nn → ()",
+                              "nodeType" : "Failure Message",
+                              "sourceLocation" : {
+                                "filePath" : "/Users/runner/work/Sample/Tests/SampleTests/SwiftTests.swift",
+                                "lineNumber" : 6
+                              }
+                            }
+                          ],
+                          "duration" : "0,00069s",
+                          "durationInSeconds" : 0.0006871223449707031,
+                          "name" : "First Run",
+                          "nodeIdentifier" : "1",
+                          "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/EvenTests/evenNumbers(n:)?args=6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+                          "nodeType" : "Repetition",
+                          "result" : "Failed"
+                        },
+                        {
+                          "children" : [
+                            {
+                              "name" : "Expectation failed: isEven(n)\nn → ()",
+                              "nodeType" : "Failure Message",
+                              "sourceLocation" : {
+                                "filePath" : "/Users/runner/work/Sample/Tests/SampleTests/SwiftTests.swift",
+                                "lineNumber" : 6
+                              }
+                            }
+                          ],
+                          "duration" : "0,00035s",
+                          "durationInSeconds" : 0.00034999847412109375,
+                          "name" : "Retry 1",
+                          "nodeIdentifier" : "2",
+                          "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/EvenTests/evenNumbers(n:)?args=6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+                          "nodeType" : "Repetition",
+                          "result" : "Failed"
+                        }
+                      ],
+                      "details" : "Failed after 2 retries",
+                      "name" : "1",
+                      "nodeType" : "Arguments",
+                      "result" : "Failed"
+                    },
+                    {
+                      "duration" : "0,0003s",
+                      "durationInSeconds" : 0.0002980232238769531,
+                      "name" : "2",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/EvenTests/evenNumbers(n:)?args=d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
+                      "nodeType" : "Arguments",
+                      "result" : "Passed"
+                    },
+                    {
+                      "children" : [
+                        {
+                          "children" : [
+                            {
+                              "name" : "Expectation failed: isEven(n)\nn → ()",
+                              "nodeType" : "Failure Message",
+                              "sourceLocation" : {
+                                "filePath" : "/Users/runner/work/Sample/Tests/SampleTests/SwiftTests.swift",
+                                "lineNumber" : 6
+                              }
+                            }
+                          ],
+                          "duration" : "0,00071s",
+                          "durationInSeconds" : 0.0007128715515136719,
+                          "name" : "First Run",
+                          "nodeIdentifier" : "1",
+                          "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/EvenTests/evenNumbers(n:)?args=4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce",
+                          "nodeType" : "Repetition",
+                          "result" : "Failed"
+                        },
+                        {
+                          "children" : [
+                            {
+                              "name" : "Expectation failed: isEven(n)\nn → ()",
+                              "nodeType" : "Failure Message",
+                              "sourceLocation" : {
+                                "filePath" : "/Users/runner/work/Sample/Tests/SampleTests/SwiftTests.swift",
+                                "lineNumber" : 6
+                              }
+                            }
+                          ],
+                          "duration" : "0,00033s",
+                          "durationInSeconds" : 0.0003311634063720703,
+                          "name" : "Retry 1",
+                          "nodeIdentifier" : "2",
+                          "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/EvenTests/evenNumbers(n:)?args=4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce",
+                          "nodeType" : "Repetition",
+                          "result" : "Failed"
+                        }
+                      ],
+                      "details" : "Failed after 2 retries",
+                      "name" : "3",
+                      "nodeType" : "Arguments",
+                      "result" : "Failed"
+                    },
+                    {
+                      "duration" : "0,00027s",
+                      "durationInSeconds" : 0.00027179718017578125,
+                      "name" : "4",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/EvenTests/evenNumbers(n:)?args=4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+                      "nodeType" : "Arguments",
+                      "result" : "Passed"
+                    }
+                  ],
+                  "duration" : "0,00044s",
+                  "durationInSeconds" : 0.0004418293635050456,
+                  "name" : "evenNumbers(n:)",
+                  "nodeIdentifier" : "EvenTests/evenNumbers(n:)",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/EvenTests/evenNumbers(n:)",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Test skipped: later",
+                      "nodeType" : "Skip Message"
+                    }
+                  ],
+                  "name" : "disabled()",
+                  "nodeIdentifier" : "EvenTests/disabled()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/EvenTests/disabled()",
+                  "nodeType" : "Test Case",
+                  "result" : "Skipped"
+                },
+                {
+                  "duration" : "0,000079s",
+                  "durationInSeconds" : 7.891654968261719e-05,
+                  "name" : "zeroIsEven()",
+                  "nodeIdentifier" : "EvenTests/zeroIsEven()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/EvenTests/zeroIsEven()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "children" : [
+                        {
+                          "name" : "Expectation failed: add(2, 2) == 5\nadd(2, 2) → 4",
+                          "nodeType" : "Failure Message",
+                          "sourceLocation" : {
+                            "filePath" : "/Users/runner/work/Sample/Tests/SampleTests/SwiftTests.swift",
+                            "lineNumber" : 7
+                          }
+                        }
+                      ],
+                      "duration" : "0,0003s",
+                      "durationInSeconds" : 0.0002980232238769531,
+                      "name" : "First Run",
+                      "nodeIdentifier" : "1",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/EvenTests/failing()",
+                      "nodeType" : "Repetition",
+                      "result" : "Failed"
+                    },
+                    {
+                      "children" : [
+                        {
+                          "name" : "Expectation failed: add(2, 2) == 5\nadd(2, 2) → 4",
+                          "nodeType" : "Failure Message",
+                          "sourceLocation" : {
+                            "filePath" : "/Users/runner/work/Sample/Tests/SampleTests/SwiftTests.swift",
+                            "lineNumber" : 7
+                          }
+                        }
+                      ],
+                      "duration" : "0,0002s",
+                      "durationInSeconds" : 0.00020313262939453125,
+                      "name" : "Retry 1",
+                      "nodeIdentifier" : "2",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/EvenTests/failing()",
+                      "nodeType" : "Repetition",
+                      "result" : "Failed"
+                    }
+                  ],
+                  "details" : "Failed after 2 retries",
+                  "duration" : "0,00025s",
+                  "durationInSeconds" : 0.0002505779266357422,
+                  "name" : "failing()",
+                  "nodeIdentifier" : "EvenTests/failing()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/EvenTests/failing()",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                }
+              ],
+              "name" : "EvenTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests/EvenTests",
+              "nodeType" : "Test Suite",
+              "result" : "Failed"
+            }
+          ],
+          "name" : "SampleTests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/Sample/SampleTests",
+          "nodeType" : "Unit test bundle",
+          "result" : "Failed"
+        }
+      ],
+      "name" : "Sample",
+      "nodeType" : "Test Plan",
+      "result" : "Failed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Test Scheme Action"
+    }
+  ]
+}
