@@ -26,7 +26,7 @@ export class TestReport {
   creatingWorkspaceFilePath?: string
   testStatus: GitHubChecksConclusion = 'neutral'
 
-  buildLog?: BuildLog
+  buildLog?: BuildLog | BuildResultsLog
   readonly chapters: TestReportChapter[] = []
   codeCoverage?: TestCodeCoverage
   readonly annotations: Annotation[] = []
@@ -433,4 +433,10 @@ export class BuildLog {
       this.content.push(lines.join('\n'))
     }
   }
+}
+
+// Build errors reported by `xcresulttool get build-results` (Xcode 16+)
+export class BuildResultsLog {
+  readonly content: string[] = []
+  readonly annotations: Annotation[] = []
 }

@@ -1,0 +1,42 @@
+{
+  "actionTitle" : "Testing workspace Sample with scheme Sample",
+  "analyzerWarningCount" : 0,
+  "analyzerWarnings" : [
+
+  ],
+  "destination" : {
+    "architecture" : "arm64",
+    "deviceId" : "00000000-0000000000000000",
+    "deviceName" : "My Mac",
+    "modelName" : "MacBook Pro",
+    "osBuildNumber" : "26A428",
+    "osVersion" : "27.0",
+    "platform" : "macOS"
+  },
+  "endTime" : 1791563911.836,
+  "errorCount" : 3,
+  "errors" : [
+    {
+      "issueType" : "Uncategorized",
+      "message" : "Testing cancelled because the build failed."
+    },
+    {
+      "className" : "DVTTextDocumentLocation",
+      "issueType" : "Swift Compiler Error",
+      "message" : "Use of 'add' refers to instance method rather than global function 'add' in module 'Sample'",
+      "sourceURL" : "file:///Users/runner/work/Sample/Tests/SampleTests/XCTests.swift#EndingColumnNumber=40&EndingLineNumber=4&StartingColumnNumber=40&StartingLineNumber=4&Timestamp=813256706.480068"
+    },
+    {
+      "className" : "DVTTextDocumentLocation",
+      "issueType" : "Swift Compiler Error",
+      "message" : "Use of 'add' refers to instance method rather than global function 'add' in module 'Sample'",
+      "sourceURL" : "file:///Users/runner/work/Sample/Tests/SampleTests/XCTests.swift#EndingColumnNumber=39&EndingLineNumber=5&StartingColumnNumber=39&StartingLineNumber=5&Timestamp=813256706.480068"
+    }
+  ],
+  "startTime" : 1791563906.322,
+  "status" : "failed",
+  "warningCount" : 0,
+  "warnings" : [
+
+  ]
+}
