@@ -1,9 +1,4 @@
-## Build Summary
-
-- error:&nbsp;Uncategorized:&nbsp;The test runner encountered an error (Failed to establish communication with the test runner. If you believe this error represents a bug, please attach the result bundle at /Users/runner/work/xcresult. (Underlying Error: The operation couldn’t be completed. (DTXProxyChannel error 1.)))
-- error:&nbsp;Uncategorized:&nbsp;xcresulttool-exampleUITests-Runner encountered an error (Failed to install or launch the test runner. If you believe this error represents a bug, please attach the result bundle at /Users/runner/work/xcresult. (Underlying Error: Invalid device state. (Underlying Error: The operation couldn’t be completed. (Mach error -308 - (ipc/mig) server died))))
-
-## Testing project xcresulttool-example with scheme xcresulttool-example
+## Test Plan
 
 ### Summary
 <table>

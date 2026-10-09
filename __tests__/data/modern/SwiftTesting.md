@@ -1,4 +1,4 @@
-## Testing workspace Sample with scheme Sample
+## Sample
 
 ### Summary
 <table>

@@ -1,4 +1,4 @@
-## Testing project Weather with scheme Weather
+## Test Plan
 
 ### Summary
 <table>

@@ -1,4 +1,4 @@
-## Testing project xcresulttool-example with scheme xcresulttool-example
+## Test Plan
 
 ### Summary
 <table>

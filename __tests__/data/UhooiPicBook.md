@@ -1,4 +1,4 @@
-## Testing project UhooiPicBook with scheme UhooiPicBook
+## Test Plan
 
 ### Summary
 <table>

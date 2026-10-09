@@ -938,9 +938,21 @@ export class Formatter {
       core.warning(`Failed to read build results: ${(error as Error).message}`)
     }
 
-    if (buildResults && buildResults.errors.length) {
+    // Unlike Xcode 16.0, newer versions also report errors of the test action,
+    // e.g. a test runner crash or "Testing cancelled because the build
+    // failed.". Test runner errors are already reported as test failures.
+    const buildErrors =
+      buildResults && buildResults.status !== 'succeeded'
+        ? buildResults.errors.filter(issue => {
+            return (
+              issue.message !== 'Testing cancelled because the build failed.'
+            )
+          })
+        : []
+
+    if (buildErrors.length) {
       const buildLog = new BuildResultsLog()
-      for (const issue of buildResults.errors) {
+      for (const issue of buildErrors) {
         const location = parseSourceURL(issue.sourceURL)
         const issueTitle = `${issue.issueType}:&nbsp;${escapeHTML(issue.message)}`
         if (location) {
@@ -985,11 +997,13 @@ export class Formatter {
       return testCase.result === 'Failed'
     })
 
-    const testPlanName = modernResult.testNodes[0]?.name || 'Test Results'
+    // The action title from `get build-results` is not used, it refers to
+    // a different action of merged result bundles depending on Xcode version
+    const testPlanNames = modernResult.testNodes.map(node => node.name)
     const testReportChapter = new TestReportChapter(
       'Test',
       {} as ActionRunDestinationRecord,
-      buildResults?.actionTitle || testPlanName
+      testPlanNames.join(', ') || 'Test Results'
     )
     testReport.chapters.push(testReportChapter)
 

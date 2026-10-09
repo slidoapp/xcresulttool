@@ -1,4 +1,4 @@
-## Testing project TAU with scheme TAUUITests
+## Test Plan
 
 ### Summary
 <table>
