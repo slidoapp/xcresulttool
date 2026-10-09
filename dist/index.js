@@ -311,17 +311,17 @@ class Formatter {
         this.parser = new parser_1.Parser(this.bundlePath);
     }
     async format(options = new FormatterOptions()) {
-        const actionsInvocationRecord = await this.parser.parse();
+        const actionsInvocationRecord = await this.parser.parseLegacy();
         const testReport = new report_1.TestReport();
         if (actionsInvocationRecord.metadataRef) {
-            const metadata = await this.parser.parse(actionsInvocationRecord.metadataRef.id);
+            const metadata = await this.parser.parseLegacy(actionsInvocationRecord.metadataRef.id);
             testReport.entityName = metadata.schemeIdentifier?.entityName;
             testReport.creatingWorkspaceFilePath = metadata.creatingWorkspaceFilePath;
         }
         if (actionsInvocationRecord.actions) {
             for (const action of actionsInvocationRecord.actions) {
                 if (action.buildResult.logRef) {
-                    const log = await this.parser.parse(action.buildResult.logRef.id);
+                    const log = await this.parser.parseLegacy(action.buildResult.logRef.id);
                     const buildLog = new report_1.BuildLog(log, testReport.creatingWorkspaceFilePath);
                     if (buildLog.content.length) {
                         testReport.buildLog = buildLog;
@@ -335,7 +335,7 @@ class Formatter {
                     if (action.actionResult.testsRef) {
                         const testReportChapter = new report_1.TestReportChapter(action.schemeCommandName, action.runDestination, action.title);
                         testReport.chapters.push(testReportChapter);
-                        const actionTestPlanRunSummaries = await this.parser.parse(action.actionResult.testsRef.id);
+                        const actionTestPlanRunSummaries = await this.parser.parseLegacy(action.actionResult.testsRef.id);
                         for (const summary of actionTestPlanRunSummaries.summaries) {
                             for (const testableSummary of summary.testableSummaries) {
                                 const testSummaries = [];
@@ -547,7 +547,7 @@ class Formatter {
                         for (const [, detail] of details.entries()) {
                             const testResult = detail;
                             if (testResult.summaryRef) {
-                                const summary = await this.parser.parse(testResult.summaryRef.id);
+                                const summary = await this.parser.parseLegacy(testResult.summaryRef.id);
                                 const testFailureGroup = new report_1.TestFailureGroup(testResultSummaryName || '', summary.identifier || '', summary.name || '');
                                 testFailures.failureGroups.push(testFailureGroup);
                                 if (summary.failureSummaries) {
@@ -767,7 +767,7 @@ class Formatter {
                             const status = Image.testStatus(testResult.testStatus);
                             const resultLines = [];
                             if (testResult.summaryRef) {
-                                const summary = await this.parser.parse(testResult.summaryRef.id);
+                                const summary = await this.parser.parseLegacy(testResult.summaryRef.id);
                                 if (summary.configuration) {
                                     if (testResult.name) {
                                         const anchorTag = (0, markdown_1.anchorNameTag)(`${testResultSummaryName}_${testResult.identifier}`);
@@ -1295,179 +1295,82 @@ function indentation(level) {
 /***/ }),
 
 /***/ 52177:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 /*eslint-disable @typescript-eslint/no-explicit-any */
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Parser = void 0;
-const core = __importStar(__nccwpck_require__(37484));
-const exec = __importStar(__nccwpck_require__(95236));
-const fs_1 = __nccwpck_require__(79896);
-const xcode_1 = __nccwpck_require__(53365);
-const { readFile } = fs_1.promises;
+const xccov_1 = __nccwpck_require__(32152);
+const xcresulttool_1 = __nccwpck_require__(13473);
 class Parser {
     bundlePath;
     constructor(bundlePath) {
         this.bundlePath = bundlePath;
     }
-    async parse(reference) {
-        const root = JSON.parse(await this.toJSON(reference));
-        return parseObject(root);
-    }
-    async exportObject(reference, outputPath) {
-        const xcodeVersion = await (0, xcode_1.getXcodeVersion)();
-        const args = [
-            'xcresulttool',
-            'export',
-            '--type',
-            'file',
-            '--path',
-            this.bundlePath,
-            '--output-path',
-            outputPath,
-            '--id',
-            reference
-        ];
-        if (xcodeVersion >= 16) {
-            args.push('--legacy');
-        }
-        const options = {
-            silent: !core.isDebug()
-        };
-        await exec.exec('xcrun', args, options);
-        return Buffer.from(await readFile(outputPath));
+    async parseLegacy(reference) {
+        const tool = new xcresulttool_1.XCResultTool(this.bundlePath);
+        const root = JSON.parse(await tool.getLegacyJSON(reference));
+        return Parser.parseObject(root);
     }
     async exportCodeCoverage() {
-        const args = ['xccov', 'view', '--report', '--json', this.bundlePath];
-        let output = '';
-        const options = {
-            silent: !core.isDebug(),
-            listeners: {
-                stdout: (data) => {
-                    output += data.toString();
-                }
-            }
-        };
-        await exec.exec('xcrun', args, options);
-        return output;
+        const tool = new xccov_1.XCCov(this.bundlePath);
+        return await tool.viewJSONReport();
     }
-    async toJSON(reference) {
-        const xcodeVersion = await (0, xcode_1.getXcodeVersion)();
-        const args = [
-            'xcresulttool',
-            'get',
-            '--path',
-            this.bundlePath,
-            '--format',
-            'json'
-        ];
-        if (reference) {
-            args.push('--id');
-            args.push(reference);
-        }
-        if (xcodeVersion >= 16) {
-            args.push('--legacy');
-        }
-        let output = '';
-        const options = {
-            silent: !core.isDebug(),
-            listeners: {
-                stdout: (data) => {
-                    output += data.toString();
-                }
-            }
-        };
-        await exec.exec('xcrun', args, options);
-        return output;
-    }
-}
-exports.Parser = Parser;
-function parseObject(element) {
-    const obj = {};
-    for (const [key, value] of Object.entries(element)) {
-        if (value['_value']) {
-            obj[key] = parsePrimitive(value);
-        }
-        else if (value['_values']) {
-            obj[key] = parseArray(value);
-        }
-        else if (key === '_type') {
-            continue;
-        }
-        else {
-            obj[key] = parseObject(value);
-        }
-    }
-    return obj;
-}
-function parseArray(arrayElement) {
-    return arrayElement['_values'].map((arrayValue) => {
+    static parseObject(element) {
         const obj = {};
-        for (const [key, value] of Object.entries(arrayValue)) {
+        for (const [key, value] of Object.entries(element)) {
             if (value['_value']) {
-                obj[key] = parsePrimitive(value);
+                obj[key] = Parser.parsePrimitive(value);
             }
             else if (value['_values']) {
-                obj[key] = parseArray(value);
+                obj[key] = Parser.parseArray(value);
             }
             else if (key === '_type') {
                 continue;
             }
-            else if (key === '_value') {
-                continue;
-            }
             else {
-                obj[key] = parseObject(value);
+                obj[key] = Parser.parseObject(value);
             }
         }
         return obj;
-    });
-}
-function parsePrimitive(element) {
-    switch (element['_type']['_name']) {
-        case 'Int':
-            return parseInt(element['_value']);
-        case 'Double':
-            return parseFloat(element['_value']);
-        default:
-            return element['_value'];
+    }
+    static parseArray(arrayElement) {
+        return arrayElement['_values'].map((arrayValue) => {
+            const obj = {};
+            for (const [key, value] of Object.entries(arrayValue)) {
+                if (value['_value']) {
+                    obj[key] = Parser.parsePrimitive(value);
+                }
+                else if (value['_values']) {
+                    obj[key] = Parser.parseArray(value);
+                }
+                else if (key === '_type') {
+                    continue;
+                }
+                else if (key === '_value') {
+                    continue;
+                }
+                else {
+                    obj[key] = Parser.parseObject(value);
+                }
+            }
+            return obj;
+        });
+    }
+    static parsePrimitive(element) {
+        switch (element['_type']['_name']) {
+            case 'Int':
+                return parseInt(element['_value']);
+            case 'Double':
+                return parseFloat(element['_value']);
+            default:
+                return element['_value'];
+        }
     }
 }
+exports.Parser = Parser;
 
 
 /***/ }),
@@ -1921,6 +1824,151 @@ async function getXcodeVersion() {
         return 0;
     }
 }
+
+
+/***/ }),
+
+/***/ 32152:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.XCCov = void 0;
+const core = __importStar(__nccwpck_require__(37484));
+const exec = __importStar(__nccwpck_require__(95236));
+class XCCov {
+    bundlePath;
+    constructor(bundlePath) {
+        this.bundlePath = bundlePath;
+    }
+    async viewJSONReport() {
+        const args = ['xccov', 'view', '--report', '--json', this.bundlePath];
+        let output = '';
+        const options = {
+            silent: !core.isDebug(),
+            listeners: {
+                stdout: (data) => {
+                    output += data.toString();
+                }
+            }
+        };
+        await exec.exec('xcrun', args, options);
+        return output;
+    }
+}
+exports.XCCov = XCCov;
+
+
+/***/ }),
+
+/***/ 13473:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.XCResultTool = void 0;
+const core = __importStar(__nccwpck_require__(37484));
+const exec = __importStar(__nccwpck_require__(95236));
+const xcode_1 = __nccwpck_require__(53365);
+class XCResultTool {
+    bundlePath;
+    constructor(bundlePath) {
+        this.bundlePath = bundlePath;
+    }
+    async getLegacyJSON(reference) {
+        const args = ['get', '--path', this.bundlePath, '--format', 'json'];
+        if (reference) {
+            args.push('--id');
+            args.push(reference);
+        }
+        if ((await (0, xcode_1.getXcodeVersion)()) >= 16) {
+            args.push('--legacy');
+        }
+        return await this.run(args);
+    }
+    async run(args) {
+        let output = '';
+        const options = {
+            silent: !core.isDebug(),
+            listeners: {
+                stdout: (data) => {
+                    output += data.toString();
+                }
+            }
+        };
+        await exec.exec('xcrun', ['xcresulttool', ...args], options);
+        return output;
+    }
+}
+exports.XCResultTool = XCResultTool;
 
 
 /***/ }),
