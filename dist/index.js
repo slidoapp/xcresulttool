@@ -286,8 +286,11 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.FormatterOptions = exports.Formatter = void 0;
 const Image = __importStar(__nccwpck_require__(8193));
+const core = __importStar(__nccwpck_require__(37484));
 const github = __importStar(__nccwpck_require__(93228));
 const path = __importStar(__nccwpck_require__(16928));
+const xcode_1 = __nccwpck_require__(53365);
+const glob_1 = __nccwpck_require__(8941);
 const report_1 = __nccwpck_require__(65444);
 const markdown_1 = __nccwpck_require__(17415);
 const coverage_1 = __nccwpck_require__(9524);
@@ -311,17 +314,22 @@ class Formatter {
         this.parser = new parser_1.Parser(this.bundlePath);
     }
     async format(options = new FormatterOptions()) {
-        const actionsInvocationRecord = await this.parser.parse();
+        const xcodeVersion = await (0, xcode_1.getXcodeVersion)();
+        if (xcodeVersion >= 16) {
+            return this.formatModern(options);
+        }
+        // Fall back to legacy format
+        const actionsInvocationRecord = await this.parser.parseLegacy();
         const testReport = new report_1.TestReport();
         if (actionsInvocationRecord.metadataRef) {
-            const metadata = await this.parser.parse(actionsInvocationRecord.metadataRef.id);
+            const metadata = await this.parser.parseLegacy(actionsInvocationRecord.metadataRef.id);
             testReport.entityName = metadata.schemeIdentifier?.entityName;
             testReport.creatingWorkspaceFilePath = metadata.creatingWorkspaceFilePath;
         }
         if (actionsInvocationRecord.actions) {
             for (const action of actionsInvocationRecord.actions) {
                 if (action.buildResult.logRef) {
-                    const log = await this.parser.parse(action.buildResult.logRef.id);
+                    const log = await this.parser.parseLegacy(action.buildResult.logRef.id);
                     const buildLog = new report_1.BuildLog(log, testReport.creatingWorkspaceFilePath);
                     if (buildLog.content.length) {
                         testReport.buildLog = buildLog;
@@ -335,7 +343,7 @@ class Formatter {
                     if (action.actionResult.testsRef) {
                         const testReportChapter = new report_1.TestReportChapter(action.schemeCommandName, action.runDestination, action.title);
                         testReport.chapters.push(testReportChapter);
-                        const actionTestPlanRunSummaries = await this.parser.parse(action.actionResult.testsRef.id);
+                        const actionTestPlanRunSummaries = await this.parser.parseLegacy(action.actionResult.testsRef.id);
                         for (const summary of actionTestPlanRunSummaries.summaries) {
                             for (const testableSummary of summary.testableSummaries) {
                                 const testSummaries = [];
@@ -547,7 +555,7 @@ class Formatter {
                         for (const [, detail] of details.entries()) {
                             const testResult = detail;
                             if (testResult.summaryRef) {
-                                const summary = await this.parser.parse(testResult.summaryRef.id);
+                                const summary = await this.parser.parseLegacy(testResult.summaryRef.id);
                                 const testFailureGroup = new report_1.TestFailureGroup(testResultSummaryName || '', summary.identifier || '', summary.name || '');
                                 testFailures.failureGroups.push(testFailureGroup);
                                 if (summary.failureSummaries) {
@@ -767,7 +775,7 @@ class Formatter {
                             const status = Image.testStatus(testResult.testStatus);
                             const resultLines = [];
                             if (testResult.summaryRef) {
-                                const summary = await this.parser.parse(testResult.summaryRef.id);
+                                const summary = await this.parser.parseLegacy(testResult.summaryRef.id);
                                 if (summary.configuration) {
                                     if (testResult.name) {
                                         const anchorTag = (0, markdown_1.anchorNameTag)(`${testResultSummaryName}_${testResult.identifier}`);
@@ -957,6 +965,307 @@ class Formatter {
             }
         }
     }
+    async formatModern(options) {
+        const testReport = new report_1.TestReport();
+        const sourcePaths = new SourcePathResolver(process.env.GITHUB_WORKSPACE);
+        let buildResults;
+        try {
+            buildResults = await this.parser.parseBuildResults();
+        }
+        catch (error) {
+            core.warning(`Failed to read build results: ${error.message}`);
+        }
+        // Unlike Xcode 16.0, newer versions also report errors of the test action,
+        // e.g. a test runner crash or "Testing cancelled because the build
+        // failed.". Test runner errors are already reported as test failures.
+        const buildErrors = buildResults && buildResults.status !== 'succeeded'
+            ? buildResults.errors.filter(issue => {
+                return (issue.message !== 'Testing cancelled because the build failed.');
+            })
+            : [];
+        if (buildErrors.length) {
+            const buildLog = new report_1.BuildResultsLog();
+            for (const issue of buildErrors) {
+                const location = parseSourceURL(issue.sourceURL);
+                const issueTitle = `${issue.issueType}:&nbsp;${escapeHTML(issue.message)}`;
+                if (location) {
+                    const displayPath = sourcePaths.displayPath(location.filePath);
+                    buildLog.content.push(`- error:&nbsp;${issueTitle}<br><code>${displayPath}:${location.lineNumber}:${location.columnNumber}</code>`);
+                    const annotationPath = await sourcePaths.annotationPath(location.filePath);
+                    if (annotationPath) {
+                        buildLog.annotations.push(new report_1.Annotation(annotationPath, location.lineNumber, location.lineNumber, 'failure', issue.message, issue.issueType));
+                    }
+                }
+                else {
+                    buildLog.content.push(`- error:&nbsp;${issueTitle}`);
+                }
+            }
+            testReport.buildLog = buildLog;
+            testReport.testStatus = 'failure';
+            testReport.annotations.push(...buildLog.annotations);
+        }
+        const modernResult = await this.parser.parseModernTests();
+        const testCases = collectModernTestCases(modernResult.testNodes);
+        if (!testCases.length && testReport.buildLog) {
+            // The build failed before any test was run
+            return testReport;
+        }
+        const testStats = countModernTestResults(testCases);
+        const failedTests = testCases.filter(testCase => {
+            return testCase.result === 'Failed';
+        });
+        // The action title from `get build-results` is not used, it refers to
+        // a different action of merged result bundles depending on Xcode version
+        const testPlanNames = modernResult.testNodes.map(node => node.name);
+        const testReportChapter = new report_1.TestReportChapter('Test', {}, testPlanNames.join(', ') || 'Test Results');
+        testReport.chapters.push(testReportChapter);
+        const chapterSummary = new report_1.TestReportChapterSummary();
+        testReportChapter.summaries.push(chapterSummary);
+        chapterSummary.content.push('### Summary');
+        chapterSummary.content.push('<table>');
+        chapterSummary.content.push('<tr>');
+        const header = [
+            `<th>Total`,
+            `<th>${passedIcon}&nbsp;Passed`,
+            `<th>${failedIcon}&nbsp;Failed`,
+            `<th>${skippedIcon}&nbsp;Skipped`,
+            `<th>${expectedFailureIcon}&nbsp;Expected Failure`,
+            `<th>:stopwatch:&nbsp;Time`
+        ].join('');
+        chapterSummary.content.push(header);
+        chapterSummary.content.push('<tr>');
+        let failedCount;
+        if (testStats.failed > 0) {
+            failedCount = `<b>${testStats.failed}</b>`;
+        }
+        else {
+            failedCount = `${testStats.failed}`;
+        }
+        const duration = testStats.duration.toFixed(2);
+        const cols = [
+            `<td align="right" width="118px">${testStats.total}`,
+            `<td align="right" width="118px">${testStats.passed}`,
+            `<td align="right" width="118px">${failedCount}`,
+            `<td align="right" width="118px">${testStats.skipped}`,
+            `<td align="right" width="158px">${testStats.expectedFailure}`,
+            `<td align="right" width="138px">${duration}s`
+        ].join('');
+        chapterSummary.content.push(cols);
+        chapterSummary.content.push('</table>\n');
+        chapterSummary.content.push('---\n');
+        if (testStats.failed > 0) {
+            testReport.testStatus = 'failure';
+        }
+        else if (testStats.passed > 0 && !testReport.buildLog) {
+            testReport.testStatus = 'success';
+        }
+        chapterSummary.content.push('### Test Summary');
+        const testGroups = {};
+        for (const testCase of testCases) {
+            const suites = (testGroups[testCase.bundleName] ??= {});
+            (suites[testCase.suiteName] ??= []).push(testCase);
+        }
+        const deviceLines = modernResult.devices.map(device => {
+            return `- **Device:** ${deviceDescription(device)}`;
+        });
+        if (modernResult.testPlanConfigurations.length > 1) {
+            const configurations = modernResult.testPlanConfigurations
+                .map(configuration => configuration.configurationName)
+                .join(', ');
+            deviceLines.push(`- **Configurations:** ${configurations}`);
+        }
+        for (const [bundleName, suites] of Object.entries(testGroups)) {
+            const anchorName = (0, markdown_1.anchorIdentifier)(bundleName);
+            const anchorTag = (0, markdown_1.anchorNameTag)(`${bundleName}_summary`);
+            chapterSummary.content.push(`#### ${anchorTag}[${bundleName}](${anchorName})\n`);
+            chapterSummary.content.push(...deviceLines);
+            chapterSummary.content.push('<table>');
+            chapterSummary.content.push('<tr>');
+            const tableHeader = [
+                `<th>Test`,
+                `<th>Total`,
+                `<th>${passedIcon}`,
+                `<th>${failedIcon}`,
+                `<th>${skippedIcon}`,
+                `<th>${expectedFailureIcon}`
+            ].join('');
+            chapterSummary.content.push(tableHeader);
+            for (const [suiteName, cases] of Object.entries(suites)) {
+                const suiteStats = countModernTestResults(cases);
+                chapterSummary.content.push('<tr>');
+                const testClass = `${testClassIcon}&nbsp;${escapeHTML(suiteName)}`;
+                const testClassAnchor = (0, markdown_1.anchorNameTag)(`${bundleName}_${suiteName}_summary`);
+                const suiteAnchorName = (0, markdown_1.anchorIdentifier)(`${bundleName}_${suiteName}`);
+                const testClassLink = `<a href="${suiteAnchorName}">${testClass}</a>`;
+                let suiteFailedCount;
+                if (suiteStats.failed > 0) {
+                    suiteFailedCount = `<b>${suiteStats.failed}</b>`;
+                }
+                else {
+                    suiteFailedCount = `${suiteStats.failed}`;
+                }
+                const suiteCols = [
+                    `<td align="left" width="368px">${testClassAnchor}${testClassLink}`,
+                    `<td align="right" width="80px">${suiteStats.total}`,
+                    `<td align="right" width="80px">${suiteStats.passed}`,
+                    `<td align="right" width="80px">${suiteFailedCount}`,
+                    `<td align="right" width="80px">${suiteStats.skipped}`,
+                    `<td align="right" width="80px">${suiteStats.expectedFailure}`
+                ].join('');
+                chapterSummary.content.push(suiteCols);
+            }
+            chapterSummary.content.push('');
+            chapterSummary.content.push('</table>\n');
+        }
+        chapterSummary.content.push('---\n');
+        chapterSummary.content.push(`### ${failedIcon} Failures`);
+        if (failedTests.length > 0) {
+            const summaryFailures = [];
+            for (const failure of failedTests) {
+                const testIdentifier = `${failure.bundleName}_${failure.identifier}`;
+                const anchorName = (0, markdown_1.anchorIdentifier)(testIdentifier);
+                const anchorTag = (0, markdown_1.anchorNameTag)(`${testIdentifier}_failure-summary`);
+                const testName = escapeHTML(`${failure.bundleName}/${failure.identifier}`);
+                const testMethodLink = `${anchorTag}<a href="${anchorName}">${testName}</a>`;
+                summaryFailures.push(`<h4>${testMethodLink}</h4>`);
+                const issues = failure.issues.filter(issue => issue.kind === 'failure');
+                // Repetitions and arguments often fail with the same issue
+                const annotated = new Set();
+                for (const issue of issues) {
+                    summaryFailures.push(`${issueTable(issue, sourcePaths)}\n`);
+                    if (issue.filePath && issue.lineNumber) {
+                        const annotationPath = await sourcePaths.annotationPath(issue.filePath);
+                        const key = `${annotationPath}:${issue.lineNumber}:${issue.message}`;
+                        if (annotationPath && !annotated.has(key)) {
+                            annotated.add(key);
+                            testReport.annotations.push(new report_1.Annotation(annotationPath, issue.lineNumber, issue.lineNumber, 'failure', issue.message, `${failure.bundleName}/${failure.identifier}`));
+                        }
+                    }
+                }
+            }
+            chapterSummary.content.push(summaryFailures.join('\n'));
+            chapterSummary.content.push('');
+        }
+        else {
+            chapterSummary.content.push('All tests passed :tada:\n');
+        }
+        if (options.showCodeCoverage) {
+            const codeCoverage = await this.modernCodeCoverage(process.env.GITHUB_WORKSPACE);
+            if (codeCoverage) {
+                testReport.codeCoverage = codeCoverage.coverage;
+                chapterSummary.content.push('---\n');
+                chapterSummary.content.push(codeCoverage.content);
+            }
+        }
+        const chapterDetail = new report_1.TestReportChapterDetail();
+        testReportChapter.details.push(chapterDetail);
+        chapterDetail.content.push('### Test Details\n');
+        for (const [bundleName, suites] of Object.entries(testGroups)) {
+            const bundleAnchorTag = (0, markdown_1.anchorNameTag)(bundleName);
+            const bundleAnchorName = (0, markdown_1.anchorIdentifier)(`${bundleName}_summary`);
+            chapterDetail.content.push(`#### ${bundleAnchorTag}${bundleName}[${backIcon}](${bundleAnchorName})`);
+            chapterDetail.content.push('');
+            for (const [suiteName, cases] of Object.entries(suites)) {
+                const suiteStats = countModernTestResults(cases);
+                const rate = (count) => {
+                    return ((count / suiteStats.total) * 100).toFixed(0);
+                };
+                const suiteAnchorTag = (0, markdown_1.anchorNameTag)(`${bundleName}_${suiteName}`);
+                const suiteAnchorName = (0, markdown_1.anchorIdentifier)(`${bundleName}_${suiteName}_summary`);
+                const anchorBack = `[${backIcon}](${suiteAnchorName})`;
+                chapterDetail.content.push(`${suiteAnchorTag}<h5>${escapeHTML(suiteName)}&nbsp;${anchorBack}</h5>`);
+                const testsStatsLines = [];
+                testsStatsLines.push('<table>');
+                testsStatsLines.push('<tr>');
+                const statsHeader = [
+                    `<th>${passedIcon}`,
+                    `<th>${failedIcon}`,
+                    `<th>${skippedIcon}`,
+                    `<th>${expectedFailureIcon}`,
+                    `<th>:stopwatch:`
+                ].join('');
+                testsStatsLines.push(statsHeader);
+                testsStatsLines.push('<tr>');
+                let detailFailedCount;
+                if (suiteStats.failed > 0) {
+                    detailFailedCount = `<b>${suiteStats.failed} (${rate(suiteStats.failed)}%)</b>`;
+                }
+                else {
+                    detailFailedCount = `${suiteStats.failed} (${rate(suiteStats.failed)}%)`;
+                }
+                const statsCols = [
+                    `<td align="right" width="154px">${suiteStats.passed} (${rate(suiteStats.passed)}%)`,
+                    `<td align="right" width="154px">${detailFailedCount}`,
+                    `<td align="right" width="154px">${suiteStats.skipped} (${rate(suiteStats.skipped)}%)`,
+                    `<td align="right" width="154px">${suiteStats.expectedFailure} (${rate(suiteStats.expectedFailure)}%)`,
+                    `<td align="right" width="154px">${suiteStats.duration.toFixed(2)}s`
+                ].join('');
+                testsStatsLines.push(statsCols);
+                testsStatsLines.push('</table>\n');
+                chapterDetail.content.push(testsStatsLines.join('\n'));
+                const testResultRows = [];
+                for (const testCase of cases) {
+                    const isFailure = testCase.result === 'Failed';
+                    if (!options.showPassedTests && !isFailure) {
+                        continue;
+                    }
+                    const status = modernTestStatusIcon(testCase.result);
+                    const valign = `valign="top"`;
+                    const colWidth = 'width="52px"';
+                    const detailWidth = 'width="716px"';
+                    const testIdentifier = `${bundleName}_${testCase.identifier}`;
+                    const testMethodAnchorTag = isFailure
+                        ? (0, markdown_1.anchorNameTag)(testIdentifier)
+                        : '';
+                    const backAnchorName = (0, markdown_1.anchorIdentifier)(`${testIdentifier}_failure-summary`);
+                    const backAnchorLink = isFailure
+                        ? `<a href="${backAnchorName}">${backIcon}</a>`
+                        : '';
+                    const testMethod = `${testMethodAnchorTag}${testMethodIcon}&nbsp;<code>${escapeHTML(testCase.name)}</code>${backAnchorLink}`;
+                    const resultLines = [testMethod];
+                    if (testCase.details) {
+                        resultLines.push(`<br><i>${escapeHTML(testCase.details)}</i>`);
+                    }
+                    if (testCase.issues.length) {
+                        resultLines.push('<br>');
+                        for (const issue of testCase.issues) {
+                            resultLines.push(issueTable(issue, sourcePaths));
+                        }
+                    }
+                    testResultRows.push(`<tr><td align="center" ${valign} ${colWidth}>${status}<td ${valign} ${detailWidth}>${resultLines.join('')}`);
+                }
+                if (testResultRows.length) {
+                    chapterDetail.content.push(['<table>', ...testResultRows, '</table>', ''].join('\n'));
+                }
+                else {
+                    chapterDetail.content.push('All tests passed :tada:\n');
+                }
+            }
+        }
+        return testReport;
+    }
+    async modernCodeCoverage(workspace) {
+        let codeCoverage;
+        try {
+            codeCoverage = coverage_1.Convert.toCodeCoverage(await this.parser.exportCodeCoverage());
+        }
+        catch {
+            // The result bundle does not contain code coverage data
+            return undefined;
+        }
+        const coverage = new report_1.TestCodeCoverage(codeCoverage);
+        let content = coverage.lines.join('\n');
+        if (workspace) {
+            let root = '';
+            if (process.env.GITHUB_REPOSITORY) {
+                const pr = github.context.payload.pull_request;
+                const sha = (pr && pr.head.sha) || github.context.sha;
+                root = `${github.context.serverUrl}/${github.context.repo.owner}/${github.context.repo.repo}/blob/${sha}/`;
+            }
+            content = content.split(`${workspace}/`).join(root);
+        }
+        return { coverage, content };
+    }
 }
 exports.Formatter = Formatter;
 function collectFailureSummaries(failureSummaries) {
@@ -1015,6 +1324,260 @@ class FormatterOptions {
     }
 }
 exports.FormatterOptions = FormatterOptions;
+function collectModernTestCases(testNodes) {
+    const testCases = [];
+    const visit = (nodes, bundleName, suitePath) => {
+        for (const node of nodes) {
+            switch (node.nodeType) {
+                case 'Unit test bundle':
+                case 'UI test bundle':
+                    visit(node.children ?? [], node.name, []);
+                    break;
+                case 'Test Suite':
+                    visit(node.children ?? [], bundleName, [...suitePath, node.name]);
+                    break;
+                case 'Test Case': {
+                    // Test cases are counted once, the same way `xcresulttool get
+                    // test-results summary` does. Individual runs (repetitions,
+                    // arguments, devices, configurations) only contribute their issues.
+                    const result = node.result ?? 'unknown';
+                    testCases.push({
+                        name: node.name,
+                        identifier: node.nodeIdentifier ?? [...suitePath, node.name].join('/'),
+                        result,
+                        details: node.details,
+                        duration: node.durationInSeconds ?? 0,
+                        bundleName,
+                        suiteName: suitePath.join('/') || bundleName,
+                        issues: collectModernTestIssues(node, result, [])
+                    });
+                    break;
+                }
+                default:
+                    visit(node.children ?? [], bundleName, suitePath);
+                    break;
+            }
+        }
+    };
+    visit(testNodes, '', []);
+    return testCases;
+}
+function collectModernTestIssues(node, result, context) {
+    const issues = [];
+    for (const child of node.children ?? []) {
+        switch (child.nodeType) {
+            case 'Failure Message':
+            case 'Skip Message':
+            case 'Expected Failure': {
+                // Before schema version 0.2.0 (Xcode 16 - 26), skip and expected
+                // failure reasons were reported as 'Failure Message' nodes as well.
+                const message = parseModernTestMessage(child);
+                let kind = 'failure';
+                if (child.nodeType === 'Skip Message' ||
+                    result === 'Skipped' ||
+                    /^Test skipped\b/.test(message.message)) {
+                    kind = 'skip';
+                }
+                else if (child.nodeType === 'Expected Failure' ||
+                    result === 'Expected Failure') {
+                    kind = 'expectedFailure';
+                }
+                issues.push({
+                    kind,
+                    ...message,
+                    context: context.join(' › ') || undefined
+                });
+                break;
+            }
+            case 'Arguments':
+            case 'Repetition':
+            case 'Device':
+            case 'Test Plan Configuration':
+            case 'Test Case Run': {
+                const name = child.nodeType === 'Arguments'
+                    ? `Arguments: ${child.name}`
+                    : child.name;
+                issues.push(...collectModernTestIssues(child, child.result ?? result, [
+                    ...context,
+                    name
+                ]));
+                break;
+            }
+            default:
+                break;
+        }
+    }
+    return issues;
+}
+function parseModernTestMessage(node) {
+    // Before schema version 0.3.0 (Xcode 16 - 26), the source location was
+    // only available as a message prefix, e.g. "File.swift:12: XCTAssertTrue failed"
+    const match = node.name.match(/^([^\s:/][^:\n]*\.[A-Za-z0-9+]+):(\d+): /);
+    if (node.sourceLocation) {
+        return {
+            message: match ? node.name.substring(match[0].length) : node.name,
+            fileName: path.basename(node.sourceLocation.filePath),
+            filePath: node.sourceLocation.filePath,
+            lineNumber: node.sourceLocation.lineNumber
+        };
+    }
+    else if (match) {
+        return {
+            message: node.name.substring(match[0].length),
+            fileName: match[1],
+            filePath: match[1],
+            lineNumber: parseInt(match[2], 10)
+        };
+    }
+    return { message: node.name };
+}
+function countModernTestResults(testCases) {
+    const stats = {
+        total: testCases.length,
+        passed: 0,
+        failed: 0,
+        skipped: 0,
+        expectedFailure: 0,
+        duration: 0
+    };
+    for (const testCase of testCases) {
+        stats.duration += testCase.duration;
+        switch (testCase.result) {
+            case 'Passed':
+                stats.passed++;
+                break;
+            case 'Failed':
+                stats.failed++;
+                break;
+            case 'Skipped':
+                stats.skipped++;
+                break;
+            case 'Expected Failure':
+                stats.expectedFailure++;
+                break;
+        }
+    }
+    return stats;
+}
+function modernTestStatusIcon(result) {
+    switch (result) {
+        case 'Passed':
+            return passedIcon;
+        case 'Failed':
+            return failedIcon;
+        case 'Skipped':
+            return skippedIcon;
+        case 'Expected Failure':
+            return expectedFailureIcon;
+        default:
+            return Image.testStatus('unknown');
+    }
+}
+function issueTable(issue, sourcePaths) {
+    const titleAttr = 'align="right" width="100px"';
+    const detailWidth = 'width="668px"';
+    const rows = [];
+    if (issue.filePath) {
+        const location = issue.lineNumber
+            ? `${sourcePaths.displayPath(issue.filePath)}:${issue.lineNumber}`
+            : sourcePaths.displayPath(issue.filePath);
+        rows.push(`<tr><td ${titleAttr}><b>File</b><td ${detailWidth}>${location}`);
+    }
+    if (issue.context) {
+        rows.push(`<tr><td ${titleAttr}><b>Run</b><td ${detailWidth}>${escapeHTML(issue.context)}`);
+    }
+    const title = issue.kind === 'skip'
+        ? 'Skipped'
+        : issue.kind === 'expectedFailure'
+            ? 'Expected Failure'
+            : 'Message';
+    const message = escapeHTML(issue.message).replace(/\n/g, '<br>');
+    rows.push(`<tr><td ${titleAttr}><b>${title}</b><td ${detailWidth}>${message}`);
+    return `<table>${rows.join('')}</table>`;
+}
+function deviceDescription(device) {
+    const platform = device.platform ? `${device.platform} ` : '';
+    const build = device.osBuildNumber ? ` (${device.osBuildNumber})` : '';
+    return `${device.modelName}, ${platform}${device.osVersion}${build}`;
+}
+function parseSourceURL(sourceURL) {
+    if (!sourceURL) {
+        return undefined;
+    }
+    try {
+        const url = new URL(sourceURL);
+        const fragment = new URLSearchParams(url.hash.substring(1));
+        // Line and column numbers are 0-based
+        const line = parseInt(fragment.get('StartingLineNumber') ?? '', 10);
+        const column = parseInt(fragment.get('StartingColumnNumber') ?? '', 10);
+        return {
+            filePath: decodeURIComponent(url.pathname),
+            lineNumber: isNaN(line) ? 1 : line + 1,
+            columnNumber: isNaN(column) ? 1 : column + 1
+        };
+    }
+    catch {
+        return undefined;
+    }
+}
+function escapeHTML(text) {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+/**
+ * Maps source file paths reported by xcresulttool to paths relative to the
+ * repository (`GITHUB_WORKSPACE`), as required by GitHub check annotations.
+ */
+class SourcePathResolver {
+    workspace;
+    fileNameCache = new Map();
+    constructor(workspace) {
+        this.workspace = workspace;
+    }
+    // Path shown in the report. Absolute paths outside the workspace are
+    // shortened to the file name, so the report does not depend on whether
+    // the source location includes the full path (Xcode 27+) or not.
+    displayPath(filePath) {
+        return this.relativePath(filePath) ?? path.basename(filePath);
+    }
+    async annotationPath(filePath) {
+        if (path.isAbsolute(filePath)) {
+            return this.relativePath(filePath) ?? filePath;
+        }
+        if (!this.workspace) {
+            return undefined;
+        }
+        // Only the file name is known (Xcode 16 - 26), look for a unique match
+        const fileName = path.basename(filePath);
+        if (!this.fileNameCache.has(fileName)) {
+            let matches = [];
+            try {
+                matches = await (0, glob_1.glob)(`**/${escapeGlob(fileName)}`, {
+                    cwd: this.workspace,
+                    nodir: true,
+                    ignore: ['**/node_modules/**', '**/.build/**', '**/Pods/**']
+                });
+            }
+            catch {
+                // no-op
+            }
+            this.fileNameCache.set(fileName, matches.length === 1 ? matches[0] : undefined);
+        }
+        return this.fileNameCache.get(fileName);
+    }
+    relativePath(filePath) {
+        if (this.workspace && filePath.startsWith(`${this.workspace}/`)) {
+            return filePath.substring(this.workspace.length + 1);
+        }
+        return undefined;
+    }
+}
+function escapeGlob(text) {
+    return text.replace(/[*?[\]{}()!@+\\]/g, '\\$&');
+}
 
 
 /***/ }),
@@ -1295,179 +1858,92 @@ function indentation(level) {
 /***/ }),
 
 /***/ 52177:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 /*eslint-disable @typescript-eslint/no-explicit-any */
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Parser = void 0;
-const core = __importStar(__nccwpck_require__(37484));
-const exec = __importStar(__nccwpck_require__(95236));
-const fs_1 = __nccwpck_require__(79896);
-const xcode_1 = __nccwpck_require__(53365);
-const { readFile } = fs_1.promises;
+const xccov_1 = __nccwpck_require__(32152);
+const xcresulttool_1 = __nccwpck_require__(13473);
 class Parser {
     bundlePath;
     constructor(bundlePath) {
         this.bundlePath = bundlePath;
     }
-    async parse(reference) {
-        const root = JSON.parse(await this.toJSON(reference));
-        return parseObject(root);
+    async parseLegacy(reference) {
+        const tool = new xcresulttool_1.XCResultTool(this.bundlePath);
+        const root = JSON.parse(await tool.getLegacyJSON(reference));
+        return Parser.parseObject(root);
     }
-    async exportObject(reference, outputPath) {
-        const xcodeVersion = await (0, xcode_1.getXcodeVersion)();
-        const args = [
-            'xcresulttool',
-            'export',
-            '--type',
-            'file',
-            '--path',
-            this.bundlePath,
-            '--output-path',
-            outputPath,
-            '--id',
-            reference
-        ];
-        if (xcodeVersion >= 16) {
-            args.push('--legacy');
-        }
-        const options = {
-            silent: !core.isDebug()
-        };
-        await exec.exec('xcrun', args, options);
-        return Buffer.from(await readFile(outputPath));
+    async parseModernTests() {
+        const tool = new xcresulttool_1.XCResultTool(this.bundlePath);
+        const output = await tool.getTestResults_Tests();
+        return JSON.parse(output);
+    }
+    async parseBuildResults() {
+        const tool = new xcresulttool_1.XCResultTool(this.bundlePath);
+        const output = await tool.getBuildResults();
+        return JSON.parse(output);
     }
     async exportCodeCoverage() {
-        const args = ['xccov', 'view', '--report', '--json', this.bundlePath];
-        let output = '';
-        const options = {
-            silent: !core.isDebug(),
-            listeners: {
-                stdout: (data) => {
-                    output += data.toString();
-                }
-            }
-        };
-        await exec.exec('xcrun', args, options);
-        return output;
+        const tool = new xccov_1.XCCov(this.bundlePath);
+        return await tool.viewJSONReport();
     }
-    async toJSON(reference) {
-        const xcodeVersion = await (0, xcode_1.getXcodeVersion)();
-        const args = [
-            'xcresulttool',
-            'get',
-            '--path',
-            this.bundlePath,
-            '--format',
-            'json'
-        ];
-        if (reference) {
-            args.push('--id');
-            args.push(reference);
-        }
-        if (xcodeVersion >= 16) {
-            args.push('--legacy');
-        }
-        let output = '';
-        const options = {
-            silent: !core.isDebug(),
-            listeners: {
-                stdout: (data) => {
-                    output += data.toString();
-                }
-            }
-        };
-        await exec.exec('xcrun', args, options);
-        return output;
-    }
-}
-exports.Parser = Parser;
-function parseObject(element) {
-    const obj = {};
-    for (const [key, value] of Object.entries(element)) {
-        if (value['_value']) {
-            obj[key] = parsePrimitive(value);
-        }
-        else if (value['_values']) {
-            obj[key] = parseArray(value);
-        }
-        else if (key === '_type') {
-            continue;
-        }
-        else {
-            obj[key] = parseObject(value);
-        }
-    }
-    return obj;
-}
-function parseArray(arrayElement) {
-    return arrayElement['_values'].map((arrayValue) => {
+    static parseObject(element) {
         const obj = {};
-        for (const [key, value] of Object.entries(arrayValue)) {
+        for (const [key, value] of Object.entries(element)) {
             if (value['_value']) {
-                obj[key] = parsePrimitive(value);
+                obj[key] = Parser.parsePrimitive(value);
             }
             else if (value['_values']) {
-                obj[key] = parseArray(value);
+                obj[key] = Parser.parseArray(value);
             }
             else if (key === '_type') {
                 continue;
             }
-            else if (key === '_value') {
-                continue;
-            }
             else {
-                obj[key] = parseObject(value);
+                obj[key] = Parser.parseObject(value);
             }
         }
         return obj;
-    });
-}
-function parsePrimitive(element) {
-    switch (element['_type']['_name']) {
-        case 'Int':
-            return parseInt(element['_value']);
-        case 'Double':
-            return parseFloat(element['_value']);
-        default:
-            return element['_value'];
+    }
+    static parseArray(arrayElement) {
+        return arrayElement['_values'].map((arrayValue) => {
+            const obj = {};
+            for (const [key, value] of Object.entries(arrayValue)) {
+                if (value['_value']) {
+                    obj[key] = Parser.parsePrimitive(value);
+                }
+                else if (value['_values']) {
+                    obj[key] = Parser.parseArray(value);
+                }
+                else if (key === '_type') {
+                    continue;
+                }
+                else if (key === '_value') {
+                    continue;
+                }
+                else {
+                    obj[key] = Parser.parseObject(value);
+                }
+            }
+            return obj;
+        });
+    }
+    static parsePrimitive(element) {
+        switch (element['_type']['_name']) {
+            case 'Int':
+                return parseInt(element['_value']);
+            case 'Double':
+                return parseFloat(element['_value']);
+            default:
+                return element['_value'];
+        }
     }
 }
+exports.Parser = Parser;
 
 
 /***/ }),
@@ -1511,7 +1987,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.BuildLog = exports.Annotation = exports.TestCodeCoverage = exports.TestFailure = exports.TestFailureGroup = exports.TestFailures = exports.TestDetail = exports.TestDetails = exports.TestReportSection = exports.TestReportChapterDetail = exports.TestReportChapterSummary = exports.TestReportChapter = exports.TestReport = void 0;
+exports.BuildResultsLog = exports.BuildLog = exports.Annotation = exports.TestCodeCoverage = exports.TestFailure = exports.TestFailureGroup = exports.TestFailures = exports.TestDetail = exports.TestDetails = exports.TestReportSection = exports.TestReportChapterDetail = exports.TestReportChapterSummary = exports.TestReportChapter = exports.TestReport = void 0;
 const pathModule = __importStar(__nccwpck_require__(16928));
 class TestReport {
     entityName;
@@ -1854,6 +2330,12 @@ class BuildLog {
     }
 }
 exports.BuildLog = BuildLog;
+// Build errors reported by `xcresulttool get build-results` (Xcode 16+)
+class BuildResultsLog {
+    content = [];
+    annotations = [];
+}
+exports.BuildResultsLog = BuildResultsLog;
 
 
 /***/ }),
@@ -1921,6 +2403,163 @@ async function getXcodeVersion() {
         return 0;
     }
 }
+
+
+/***/ }),
+
+/***/ 32152:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.XCCov = void 0;
+const core = __importStar(__nccwpck_require__(37484));
+const exec = __importStar(__nccwpck_require__(95236));
+class XCCov {
+    bundlePath;
+    constructor(bundlePath) {
+        this.bundlePath = bundlePath;
+    }
+    async viewJSONReport() {
+        const args = ['xccov', 'view', '--report', '--json', this.bundlePath];
+        let output = '';
+        const options = {
+            silent: !core.isDebug(),
+            listeners: {
+                stdout: (data) => {
+                    output += data.toString();
+                }
+            }
+        };
+        await exec.exec('xcrun', args, options);
+        return output;
+    }
+}
+exports.XCCov = XCCov;
+
+
+/***/ }),
+
+/***/ 13473:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.XCResultTool = void 0;
+const core = __importStar(__nccwpck_require__(37484));
+const exec = __importStar(__nccwpck_require__(95236));
+const xcode_1 = __nccwpck_require__(53365);
+class XCResultTool {
+    bundlePath;
+    constructor(bundlePath) {
+        this.bundlePath = bundlePath;
+    }
+    async getTestResults_Tests() {
+        return await this.run([
+            'get',
+            'test-results',
+            'tests',
+            '--path',
+            this.bundlePath
+        ]);
+    }
+    async getBuildResults() {
+        return await this.run(['get', 'build-results', '--path', this.bundlePath]);
+    }
+    async getLegacyJSON(reference) {
+        const args = ['get', '--path', this.bundlePath, '--format', 'json'];
+        if (reference) {
+            args.push('--id');
+            args.push(reference);
+        }
+        if ((await (0, xcode_1.getXcodeVersion)()) >= 16) {
+            args.push('--legacy');
+        }
+        return await this.run(args);
+    }
+    async run(args) {
+        let output = '';
+        const options = {
+            silent: !core.isDebug(),
+            listeners: {
+                stdout: (data) => {
+                    output += data.toString();
+                }
+            }
+        };
+        await exec.exec('xcrun', ['xcresulttool', ...args], options);
+        return output;
+    }
+}
+exports.XCResultTool = XCResultTool;
 
 
 /***/ }),

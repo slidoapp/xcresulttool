@@ -1,0 +1,120 @@
+{
+    "schemas": {
+        "BuildResults": {
+            "type": "object",
+            "properties": {
+                "actionTitle": {
+                    "type": "string"
+                },
+                "destination": {
+                    "$ref": "#/schemas/Device"
+                },
+                "startTime": {
+                    "type": "number",
+                    "format": "double",
+                    "description": "Date as a UNIX timestamp (seconds since midnight UTC on January 1, 1970)"
+                },
+                "endTime": {
+                    "type": "number",
+                    "format": "double",
+                    "description": "Date as a UNIX timestamp (seconds since midnight UTC on January 1, 1970)"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "analyzerWarningCount": {
+                    "type": "integer"
+                },
+                "errorCount": {
+                    "type": "integer"
+                },
+                "warningCount": {
+                    "type": "integer"
+                },
+                "analyzerWarnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/schemas/Issue"
+                    }
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/schemas/Issue"
+                    }
+                },
+                "errors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/schemas/Issue"
+                    }
+                }
+            },
+            "required": [
+                "destination",
+                "startTime",
+                "endTime",
+                "analyzerWarnings",
+                "warnings",
+                "errors"
+            ]
+        },
+        "Device": {
+            "type": "object",
+            "properties": {
+                "deviceId": {
+                    "type": "string"
+                },
+                "deviceName": {
+                    "type": "string"
+                },
+                "architecture": {
+                    "type": "string"
+                },
+                "modelName": {
+                    "type": "string"
+                },
+                "platform": {
+                    "type": "string"
+                },
+                "osVersion": {
+                    "type": "string"
+                },
+                "osBuildNumber": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "deviceId",
+                "deviceName",
+                "architecture",
+                "modelName",
+                "osVersion"
+            ]
+        },
+        "Issue": {
+            "type": "object",
+            "properties": {
+                "issueType": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "targetName": {
+                    "type": "string"
+                },
+                "sourceURL": {
+                    "type": "string"
+                },
+                "className": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "issueType",
+                "message"
+            ]
+        }
+    }
+}
