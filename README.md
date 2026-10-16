@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://github.com/kishikawakatsumi/xcresulttool/actions"><img alt="xcresulttool status" src="https://github.com/kishikawakatsumi/xcresulttool/workflows/build-test/badge.svg"></a>
+  <a href="https://github.com/slidoapp/xcresulttool/actions/workflows/test.yml"><img alt="xcresulttool status" src="https://github.com/slidoapp/xcresulttool/actions/workflows/test.yml/badge.svg"></a>
 </p>
 
 # xcresulttool GitHub Action
@@ -10,7 +10,7 @@ A GitHub Action that generates a human-readable test report from the Xcode resul
 
 The result is formatted into a test report that shows the success or failure of the tests, code coverages, logs, activities, and saved screenshots.
 
-Here is [an example result](https://github.com/kishikawakatsumi/xcresulttool-example/pull/2/checks?check_run_id=3954797886).
+Here is [an example of the results](https://github.com/slidoapp/xcresulttool/actions/workflows/test.yml). For more details, check the latest workflow run.
 
 <img width="300" height="300" alt="Screen Shot" src="https://user-images.githubusercontent.com/40610/138133779-fcf57fde-ef67-4207-a2ed-6d13c47842aa.png"> <img width="300" height="300" alt="Screen Shot" src="https://user-images.githubusercontent.com/40610/138133993-0573480d-1840-4f3e-987f-af928978972f.png">
 
@@ -33,7 +33,7 @@ in `TestResults.xcresult`
 ```yaml
 jobs:
   test:
-    runs-on: macos-11
+    runs-on: macos-14
       - name: Run Tests
         run: |
           xcodebuild -scheme MyFramework -resultBundlePath TestResults test
@@ -46,7 +46,7 @@ jobs:
 ## Example
 
 ```yaml
-- uses: kishikawakatsumi/xcresulttool@v1
+- uses: slidoapp/xcresulttool@v3.1.1
   with:
     path: TestResults.xcresult
   if: success() || failure()
@@ -57,7 +57,7 @@ jobs:
 ```yaml
 jobs:
   test:
-    runs-on: macos-11
+    runs-on: macos-14
     name: Test
     steps:
       - uses: actions/checkout@v2
@@ -65,7 +65,7 @@ jobs:
         run: |
           xcodebuild -scheme MyFramework -resultBundlePath TestResults test
 
-      - uses: kishikawakatsumi/xcresulttool@v1
+      - uses: slidoapp/xcresulttool@v3.1.1
         with:
           path: TestResults.xcresult
         if: success() || failure()
@@ -76,7 +76,7 @@ jobs:
 ## Multiple result bundle paths
 
 ```yaml
-- uses: kishikawakatsumi/xcresulttool@v1
+- uses: slidoapp/xcresulttool@v3.1.1
   with:
     path: |
       results/Example.xcresult
@@ -88,7 +88,7 @@ jobs:
 ## Input parameters
 
 ```yaml
-- uses: kishikawakatsumi/xcresulttool@v1
+- uses: slidoapp/xcresulttool@v3.1.1
   with:
     # Path to the xcresult bundle.
     path: 'TestResults.xcresult'
